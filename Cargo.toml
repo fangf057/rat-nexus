@@ -1,0 +1,24 @@
+[package]
+name = "rat-setup"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+anyhow = "1.0.100"
+crossterm = "0.29.0"
+ratatui = "0.29.0"
+snafu = "0.8.9"
+tokio = { version = "1.48.0", features = ["full"] }
+
+[dependencies.syn]
+version = "2.0"
+features = ["full", "extra-traits"]
+
+[dependencies.quote]
+version = "1.0"
+
+[dependencies.proc-macro2]
+version = "1.0"
