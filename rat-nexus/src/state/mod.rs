@@ -18,24 +18,24 @@ pub struct WeakEntity<T: ?Sized + Send + Sync> {
 
 impl<T: ?Sized + Send + Sync> Entity<T> {
     /// Update the inner value using a closure and notify subscribers.
-    pub fn update<F, R>(&self, f: F) -> R
+    pub fn update<F, R>(&self, f: F) -> crate::Result<R>
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock().map_err(|_| crate::Error::LockPoisoned)?;
         let res = f(&mut *guard);
         drop(guard);
         let _ = self.tx.send(());
-        res
+        Ok(res)
     }
 
     /// Read the inner value using a closure.
-    pub fn read<F, R>(&self, f: F) -> R
+    pub fn read<F, R>(&self, f: F) -> crate::Result<R>
     where
         F: FnOnce(&T) -> R,
     {
-        let guard = self.inner.lock().unwrap();
-        f(&*guard)
+        let guard = self.inner.lock().map_err(|_| crate::Error::LockPoisoned)?;
+        Ok(f(&*guard))
     }
 
     /// Downcast this entity to a weak handle.
@@ -62,7 +62,7 @@ impl<T: ?Sized + Send + Sync> WeakEntity<T> {
     }
 
     /// Update the entity if it is still alive.
-    pub fn update<F, R>(&self, f: F) -> Option<R>
+    pub fn update<F, R>(&self, f: F) -> Option<crate::Result<R>>
     where
         F: FnOnce(&mut T) -> R,
     {

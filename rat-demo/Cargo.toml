@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 rat-nexus = { path = "../rat-nexus" }
+anyhow = "1.0.100"
 crossterm = "0.29.0"
 ratatui = "0.29.0"
 tokio = { version = "1.48.0", features = ["full"] }

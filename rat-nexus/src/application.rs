@@ -45,9 +45,11 @@ impl AppContext {
     }
 
     /// Set the root component of the application.
-    pub fn set_root(&self, root: Arc<Mutex<dyn AnyComponent>>) {
-        *self.root.lock().unwrap() = Some(root);
+    pub fn set_root(&self, root: Arc<Mutex<dyn AnyComponent>>) -> crate::Result<()> {
+        let mut guard = self.root.lock().map_err(|_| crate::Error::LockPoisoned)?;
+        *guard = Some(root);
         self.refresh();
+        Ok(())
     }
 
     /// Trigger a re-render.
@@ -141,11 +143,11 @@ impl Application {
     }
 
     /// Run the application with the given closure that receives a context.
-    pub fn run<F>(self, setup: F) -> io::Result<()>
+    pub fn run<F>(self, setup: F) -> anyhow::Result<()>
     where
-        F: FnOnce(&AppContext) -> io::Result<()>,
+        F: FnOnce(&AppContext) -> anyhow::Result<()>,
     {
-        let rt = Runtime::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let rt = Runtime::new().map_err(|e| anyhow::anyhow!("Failed to start tokio: {}", e))?;
         
         let (re_render_tx, re_render_rx) = mpsc::unbounded_channel();
         let root = Arc::new(Mutex::new(None));
@@ -159,7 +161,7 @@ impl Application {
         drop(_guard);
 
         let actual_root = {
-            let guard = root.lock().unwrap();
+            let guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned"))?;
             guard.clone().unwrap_or_else(|| Arc::new(Mutex::new(DummyView)))
         };
 
@@ -168,7 +170,7 @@ impl Application {
         })
     }
 
-    async fn run_loop(&self, app: AppContext, root: Arc<Mutex<dyn AnyComponent>>, re_render_rx: mpsc::UnboundedReceiver<()>) -> io::Result<()> {
+    async fn run_loop(&self, app: AppContext, root: Arc<Mutex<dyn AnyComponent>>, re_render_rx: mpsc::UnboundedReceiver<()>) -> anyhow::Result<()> {
         enable_raw_mode()?;
         let mut stdout = stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -194,7 +196,7 @@ impl Application {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         root: Arc<Mutex<dyn AnyComponent>>,
         mut re_render_rx: mpsc::UnboundedReceiver<()>,
-    ) -> io::Result<()> {
+    ) -> anyhow::Result<()> {
         // Initial render
         let _ = app.re_render_tx.send(());
 
@@ -206,7 +208,7 @@ impl Application {
                         let mut cx = Context::<dyn AnyComponent>::new(app.clone(), area);
                         // In a real GPUI-like app, the root would be an Entity<dyn AnyComponent>.
                         // For now, we just pass the context.
-                        let mut guard = root.lock().unwrap();
+                        let mut guard = root.lock().expect("Root mutex poisoned during render");
                         guard.render_any(frame, &mut cx);
                     })?;
                 }
@@ -219,7 +221,7 @@ impl Application {
                                 let area = Rect::new(0, 0, size.width, size.height);
                                 let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
                                 
-                                let mut guard = root.lock().unwrap();
+                                let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
                                 let action = guard.handle_event_any(event, &mut cx);
                                 app.refresh(); // Trigger refresh after any event handling
 

@@ -390,6 +390,7 @@ dependencies = [
 name = "rat-demo"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crossterm 0.29.0",
  "rat-nexus",
  "ratatui",

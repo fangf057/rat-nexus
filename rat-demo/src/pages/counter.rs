@@ -22,7 +22,7 @@ impl CounterPage {
             if s.logs.len() > 10 {
                 s.logs.remove(0);
             }
-        });
+        }).expect("failed to log");
     }
 }
 
@@ -32,8 +32,8 @@ impl Component for CounterPage {
         cx.subscribe(&self.state);
         cx.subscribe(&self.local);
 
-        let counter = self.state.read(|s| s.counter);
-        let local = self.local.read(|s| s.clone());
+        let counter = self.state.read(|s| s.counter).expect("failed to read global state");
+        let local = self.local.read(|s| s.clone()).expect("failed to read local state");
 
         let direction = if local.layout_horizontal { Direction::Horizontal } else { Direction::Vertical };
         
@@ -85,39 +85,39 @@ impl Component for CounterPage {
     fn handle_event(&mut self, event: Event, cx: &mut EventContext<Self>) -> Option<Action> {
         match event {
             Event::Key(key) if key.code == KeyCode::Char('l') => {
-                self.local.update(|s| s.layout_horizontal = !s.layout_horizontal);
+                self.local.update(|s| s.layout_horizontal = !s.layout_horizontal).expect("failed to toggle layout");
                 self.log("Layout Toggled".to_string());
                 None
             }
             Event::Key(key) if key.code == KeyCode::Char('w') => {
                  let local = self.local.clone();
                  // If not already working
-                 let is_working = local.read(|s| s.is_working);
+                 let is_working = local.read(|s| s.is_working).expect("failed to read work status");
                  if !is_working {
                     self.log("Async Task Started".to_string());
-                    local.update(|s| { s.is_working = true; s.progress = 0; });
+                    local.update(|s| { s.is_working = true; s.progress = 0; }).expect("failed to start task");
                     
                     cx.app.spawn(move |_| async move {
                         for i in 1..=10 {
                             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                            local.update(|s| s.progress = i * 10);
+                            local.update(|s| s.progress = i * 10).expect("failed to update progress");
                         }
-                        local.update(|s| { s.is_working = false; s.logs.push("Task Complete".to_string()); });
+                        local.update(|s| { s.is_working = false; s.logs.push("Task Complete".to_string()); }).expect("failed to complete task");
                     });
                  }
                  None
             }
              Event::Key(key) if key.code == KeyCode::Char('c') => {
-                self.local.update(|s| s.logs.clear());
+                self.local.update(|s| s.logs.clear()).expect("failed to clear logs");
                 None
             }
             Event::Key(key) if key.code == KeyCode::Char('j') => {
-                self.state.update(|s| s.counter += 1);
+                self.state.update(|s| s.counter += 1).expect("failed to increment counter");
                 self.log("Counter ++".to_string());
                 None
             }
             Event::Key(key) if key.code == KeyCode::Char('k') => {
-                self.state.update(|s| s.counter -= 1);
+                self.state.update(|s| s.counter -= 1).expect("failed to decrement counter");
                 self.log("Counter --".to_string());
                 None
             }
