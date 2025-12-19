@@ -19,6 +19,8 @@ pub struct AppContext {
     root: Arc<Mutex<Option<Arc<Mutex<dyn AnyComponent>>>>>,
     /// Internal: Channel to trigger a re-render.
     re_render_tx: mpsc::UnboundedSender<()>,
+    /// Internal: Total frames rendered.
+    frame_count: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Clone for AppContext {
@@ -26,6 +28,7 @@ impl Clone for AppContext {
         Self {
             root: Arc::clone(&self.root),
             re_render_tx: mpsc::UnboundedSender::clone(&self.re_render_tx),
+            frame_count: Arc::clone(&self.frame_count),
         }
     }
 }
@@ -62,6 +65,11 @@ impl AppContext {
     /// Trigger a re-render.
     pub fn refresh(&self) {
         let _ = self.re_render_tx.send(());
+    }
+
+    /// Get the total number of frames rendered.
+    pub fn frame_count(&self) -> u64 {
+        self.frame_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -161,6 +169,7 @@ impl Application {
         let app_context = AppContext {
             root: Arc::clone(&root),
             re_render_tx,
+            frame_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
 
         let _guard = rt.enter();
@@ -172,9 +181,14 @@ impl Application {
             guard.as_ref().map(Arc::clone).unwrap_or_else(|| Arc::new(Mutex::new(DummyView)))
         };
 
-        rt.block_on(async move {
+        let result = rt.block_on(async move {
             self.run_loop(app_context, actual_root, re_render_rx).await
-        })
+        });
+
+        // Ensure we don't hang forever on background tasks (like infinite loops in components)
+        rt.shutdown_timeout(Duration::from_millis(100));
+
+        result
     }
 
     async fn run_loop(&self, app: AppContext, root: Arc<Mutex<dyn AnyComponent>>, re_render_rx: mpsc::UnboundedReceiver<()>) -> anyhow::Result<()> {
@@ -221,6 +235,11 @@ impl Application {
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
         tokio::task::spawn_blocking(move || {
             loop {
+                // Check if the main loop is still interested in events
+                if event_tx.is_closed() {
+                    break;
+                }
+                
                 // Lower poll duration for higher responsiveness
                 match event::poll(Duration::from_millis(20)) {
                     Ok(true) => {
@@ -278,6 +297,7 @@ impl Application {
                     while re_render_rx.try_recv().is_ok() {}
 
                     terminal.draw(|frame| {
+                        app.frame_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let area = frame.area();
                         let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app), area);
                         let mut guard = root.lock().expect("Root mutex poisoned during render");

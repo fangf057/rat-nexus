@@ -1,4 +1,4 @@
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext};
 use crate::model::{AppState, LocalState};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment},
@@ -13,6 +13,9 @@ pub struct CounterPage {
     title: &'static str,
     state: Entity<AppState>,
     local: Entity<LocalState>,
+    // Transient tracking state that doesn't trigger reactivity
+    last_fps_update: std::time::Instant,
+    last_frame_count: u64,
 }
 
 impl CounterPage {
@@ -21,6 +24,8 @@ impl CounterPage {
             title, 
             state, 
             local,
+            last_fps_update: std::time::Instant::now(),
+            last_frame_count: 0,
         }
     }
 
@@ -36,8 +41,8 @@ impl CounterPage {
 
 impl Component for CounterPage {
     fn on_init(&mut self, cx: &mut Context<Self>) {
-        let local = self.local.clone();
-        let app = cx.app.clone();
+        let local = Entity::clone(&self.local);
+        let app = AppContext::clone(&cx.app);
         
         // Task 1: Clock
         cx.app.spawn(move |_| async move {
@@ -50,8 +55,8 @@ impl Component for CounterPage {
         });
 
         // Task 2: Mock System Load
-        let local_val = self.local.clone();
-        let app2 = cx.app.clone();
+        let local_val = Entity::clone(&self.local);
+        let app2 = AppContext::clone(&cx.app);
         cx.app.spawn(move |_| async move {
             use rand::Rng;
             loop {
@@ -67,28 +72,33 @@ impl Component for CounterPage {
             }
         });
 
-        // Task 3: Pulse Decay (Fast refresh for smoothness)
-        let local_pulse = self.local.clone();
-        let app3 = cx.app.clone();
+        // Task 3: Pulse Decay (Reactive only)
+        let local_pulse = Entity::clone(&self.local);
+        let app3 = AppContext::clone(&cx.app);
         cx.app.spawn(move |_| async move {
             loop {
                 let mut changed = false;
                 let _ = local_pulse.update(|s| {
                     if s.pulse_inc > 0 {
-                        s.pulse_inc = s.pulse_inc.saturating_sub(10);
+                        s.pulse_inc = s.pulse_inc.saturating_sub(5);
                         changed = true;
                     }
                     if s.pulse_dec > 0 {
-                        s.pulse_dec = s.pulse_dec.saturating_sub(10);
+                        s.pulse_dec = s.pulse_dec.saturating_sub(5);
                         changed = true;
                     }
                 });
+                
+                // ONLY refresh if we actually have a pulse to decay.
+                // This stops the "infinite 600fps" loop when the UI is idle.
                 if changed {
                     app3.refresh();
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(16)).await; // ~60fps decay
+                
+                tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
             }
         });
+
     }
 
     fn on_exit(&mut self, _cx: &mut Context<Self>) {
@@ -104,6 +114,21 @@ impl Component for CounterPage {
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
         cx.subscribe(&self.state);
         cx.subscribe(&self.local);
+
+        // Update FPS calculation locally
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(self.last_fps_update).as_secs_f64();
+        if elapsed >= 1.0 {
+            let current_frames = cx.app.frame_count();
+            let delta_frames = current_frames.saturating_sub(self.last_frame_count);
+            let fps = delta_frames as f64 / elapsed;
+            
+            // Only update the reactive state once per second to avoid render loops
+            let _ = self.local.update(|s| s.fps = fps);
+            
+            self.last_fps_update = now;
+            self.last_frame_count = current_frames;
+        }
 
         let counter_state = self.state.read(|s| s.clone()).expect("failed to read global state");
         let local = self.local.read(|s| s.clone()).expect("failed to read local state");
@@ -122,7 +147,11 @@ impl Component for CounterPage {
         // --- Render Header ---
         let header_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(20)])
+            .constraints([
+                Constraint::Min(0), 
+                Constraint::Length(10), // FPS
+                Constraint::Length(20), // Clock
+            ])
             .split(main_layout[0]);
 
         let title = Paragraph::new(format!("Nexus Framework Demo - {}", self.title))
@@ -131,11 +160,18 @@ impl Component for CounterPage {
             .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::Cyan)));
         frame.render_widget(title, header_chunks[0]);
 
+        let fps_text = format!("{:.1} FPS", local.fps);
+        let fps = Paragraph::new(fps_text)
+            .style(Style::default().fg(if local.fps > 55.0 { Color::Green } else if local.fps > 30.0 { Color::Yellow } else { Color::Red }))
+            .alignment(Alignment::Right)
+            .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::Cyan)));
+        frame.render_widget(fps, header_chunks[1]);
+
         let clock = Paragraph::new(local.current_time)
             .cyan()
             .alignment(Alignment::Right)
             .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::Cyan)));
-        frame.render_widget(clock, header_chunks[1]);
+        frame.render_widget(clock, header_chunks[2]);
 
         // --- Render Main Area ---
         let body_layout = Layout::default()
