@@ -102,16 +102,24 @@ impl Component for CounterComponent {
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
-        if let Event::Key(key) = event {
-            if key.code == KeyCode::Char('j') {
-                _ = self.state.update(|s| s.count += 1);
+        match event {
+            Event::Key(key) => {
+                if key.code == KeyCode::Char('j') {
+                    _ = self.state.update(|s| s.count += 1);
+                }
+                if key.code == KeyCode::Char('k') {
+                    _ = self.state.update(|s| s.count -= 1);
+                }
+                if key.code == KeyCode::Char('q') {
+                    return Some(Action::Quit);
+                }
             }
-            if key.code == KeyCode::Char('k') {
-                _ = self.state.update(|s| s.count -= 1);
+            Event::Mouse(mouse) => {
+                if matches!(mouse.kind, crossterm::event::MouseEventKind::Down(_)) {
+                    _ = self.state.update(|s| s.count += 1);
+                }
             }
-            if key.code == KeyCode::Char('q') {
-                return Some(Action::Quit);
-            }
+            _ => {}
         }
         None
     }

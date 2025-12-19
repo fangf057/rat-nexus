@@ -247,6 +247,49 @@ impl Component for CounterPage {
 
     fn handle_event(&mut self, event: Event, cx: &mut EventContext<Self>) -> Option<Action> {
         match event {
+            Event::Mouse(mouse) => {
+                self.log(format!("Mouse Event: {:?}", mouse.kind));
+                use crossterm::event::MouseButton;
+                match mouse.kind {
+                    crossterm::event::MouseEventKind::Down(MouseButton::Left) => {
+                        let _ = self.state.update(|s| {
+                            s.counter += 1;
+                            s.history.push(s.counter as u64);
+                            if s.history.len() > 50 { s.history.remove(0); }
+                        });
+                        self.log("Mouse: Left Click -> Inc".to_string());
+                        None
+                    }
+                    crossterm::event::MouseEventKind::Down(MouseButton::Right) => {
+                        let _ = self.state.update(|s| {
+                            s.counter -= 1;
+                            s.history.push(s.counter as u64);
+                            if s.history.len() > 50 { s.history.remove(0); }
+                        });
+                        self.log("Mouse: Right Click -> Dec".to_string());
+                        None
+                    }
+                    crossterm::event::MouseEventKind::ScrollUp => {
+                        let _ = self.state.update(|s| {
+                            s.counter += 1;
+                            s.history.push(s.counter as u64);
+                            if s.history.len() > 50 { s.history.remove(0); }
+                        });
+                        self.log("Mouse: Scroll Up -> Inc".to_string());
+                        None
+                    }
+                    crossterm::event::MouseEventKind::ScrollDown => {
+                        let _ = self.state.update(|s| {
+                            s.counter -= 1;
+                            s.history.push(s.counter as u64);
+                            if s.history.len() > 50 { s.history.remove(0); }
+                        });
+                        self.log("Mouse: Scroll Down -> Dec".to_string());
+                        None
+                    }
+                    _ => None,
+                }
+            }
             Event::Key(key) if key.code == KeyCode::Char('l') => {
                 let _ = self.local.update(|s| s.layout_horizontal = !s.layout_horizontal);
                 self.log("Layout Toggled".to_string());

@@ -7,6 +7,9 @@ pub enum Event {
     Key(crossterm::event::KeyEvent),
     Mouse(crossterm::event::MouseEvent),
     Resize(u16, u16),
+    FocusGained,
+    FocusLost,
+    Paste(String),
     Custom(String),
 }
 

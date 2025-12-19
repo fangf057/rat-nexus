@@ -173,7 +173,7 @@ impl Application {
     async fn run_loop(&self, app: AppContext, root: Arc<Mutex<dyn AnyComponent>>, re_render_rx: mpsc::UnboundedReceiver<()>) -> anyhow::Result<()> {
         enable_raw_mode()?;
         let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, event::EnableFocusChange)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -192,7 +192,8 @@ impl Application {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
+            DisableMouseCapture,
+            event::DisableFocusChange
         )?;
         terminal.show_cursor()?;
 
@@ -223,26 +224,34 @@ impl Application {
                 }
                 event_ready = async { event::poll(Duration::from_millis(100)) } => {
                     if let Ok(true) = event_ready {
-                        if let CrosstermEvent::Key(key) = event::read()? {
-                            if key.kind == KeyEventKind::Press {
-                                let event = Event::Key(key);
-                                let size = terminal.size()?;
-                                let area = Rect::new(0, 0, size.width, size.height);
-                                let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
-                                
-                                let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
-                                let action = guard.handle_event_any(event, &mut cx);
-                                app.refresh(); // Trigger refresh after any event handling
+                        let crossterm_event = event::read()?;
+                        let internal_event = match crossterm_event {
+                            CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => Some(Event::Key(key)),
+                            CrosstermEvent::Mouse(mouse) => Some(Event::Mouse(mouse)),
+                            CrosstermEvent::Resize(w, h) => Some(Event::Resize(w, h)),
+                            CrosstermEvent::FocusGained => Some(Event::FocusGained),
+                            CrosstermEvent::FocusLost => Some(Event::FocusLost),
+                            CrosstermEvent::Paste(s) => Some(Event::Paste(s)),
+                            _ => None,
+                        };
 
-                                if let Some(action) = action {
-                                    match action {
-                                        Action::Quit => {
-                                            // Lifecycle: Call on_shutdown
-                                            guard.on_shutdown_any(&mut cx);
-                                            return Ok(());
-                                        }
-                                        _ => {}
+                        if let Some(event) = internal_event {
+                            let size = terminal.size()?;
+                            let area = Rect::new(0, 0, size.width, size.height);
+                            let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
+                            
+                            let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
+                            let action = guard.handle_event_any(event, &mut cx);
+                            app.refresh(); // Trigger refresh after any event handling
+
+                            if let Some(action) = action {
+                                match action {
+                                    Action::Quit => {
+                                        // Lifecycle: Call on_shutdown
+                                        guard.on_shutdown_any(&mut cx);
+                                        return Ok(());
                                     }
+                                    _ => {}
                                 }
                             }
                         }
