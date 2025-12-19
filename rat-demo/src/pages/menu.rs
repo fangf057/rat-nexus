@@ -1,6 +1,5 @@
 use rat_nexus::{Component, Context, EventContext, Event, Action, Route, Entity};
 use ratatui::widgets::Paragraph;
-use ratatui::style::Stylize;
 use crossterm::event::KeyCode;
 use crate::model::AppState;
 

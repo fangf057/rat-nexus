@@ -12,6 +12,8 @@ pub struct LocalState {
     pub is_working: bool,
     pub current_time: String,
     pub system_load: Vec<u64>,
+    pub pulse_inc: u8, // Decay value for visual feedback
+    pub pulse_dec: u8, // Decay value for visual feedback
 }
 
 impl Default for LocalState {
@@ -23,6 +25,8 @@ impl Default for LocalState {
             is_working: false,
             current_time: "--:--:--".to_string(),
             system_load: vec![0; 20],
+            pulse_inc: 0,
+            pulse_dec: 0,
         }
     }
 }

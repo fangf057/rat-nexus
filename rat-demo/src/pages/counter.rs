@@ -4,6 +4,7 @@ use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment},
     widgets::{Block, Borders, Paragraph, Gauge, List, ListItem, Sparkline, Chart, Axis, Dataset, GraphType},
     style::{Style, Color, Modifier, Stylize},
+    text::{Line, Span},
     symbols,
 };
 use crossterm::event::KeyCode;
@@ -63,6 +64,29 @@ impl Component for CounterPage {
                 }
                 app2.refresh();
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            }
+        });
+
+        // Task 3: Pulse Decay (Fast refresh for smoothness)
+        let local_pulse = self.local.clone();
+        let app3 = cx.app.clone();
+        cx.app.spawn(move |_| async move {
+            loop {
+                let mut changed = false;
+                let _ = local_pulse.update(|s| {
+                    if s.pulse_inc > 0 {
+                        s.pulse_inc = s.pulse_inc.saturating_sub(10);
+                        changed = true;
+                    }
+                    if s.pulse_dec > 0 {
+                        s.pulse_dec = s.pulse_dec.saturating_sub(10);
+                        changed = true;
+                    }
+                });
+                if changed {
+                    app3.refresh();
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(16)).await; // ~60fps decay
             }
         });
     }
@@ -127,19 +151,66 @@ impl Component for CounterPage {
         let left_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7),
+                Constraint::Length(10),
                 Constraint::Min(0),
             ])
             .split(body_layout[0]);
 
-        let counter_block = Block::default().title(" Global State ").borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded);
+        let counter_style = if local.pulse_inc > 0 {
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+        } else if local.pulse_dec > 0 {
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
+
+        let counter_block = Block::default()
+            .title(" Global Counter ")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(if local.pulse_inc > 0 { Color::Green } else if local.pulse_dec > 0 { Color::Red } else { Color::Gray }));
+
+        let counter_inner = counter_block.inner(left_chunks[0]);
+        let counter_sub_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ])
+            .split(counter_inner);
+
         let counter_p = Paragraph::new(vec![
-            format!("Counter Value: {}", counter_state.counter).into(),
             "".into(),
-            "Press 'j' to Increment".into(),
-            "Press 'k' to Decrement".into(),
-        ]).alignment(Alignment::Center).block(counter_block);
+            Line::from(vec![
+                Span::styled(" VALUE ", Style::default().fg(Color::DarkGray)),
+            ]).alignment(Alignment::Center),
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", counter_state.counter), 
+                    counter_style.patch(Style::default().bg(if local.pulse_inc > 0 { Color::Rgb(0, 40, 0) } else if local.pulse_dec > 0 { Color::Rgb(40, 0, 0) } else { Color::Reset }))
+                ),
+            ]).alignment(Alignment::Center),
+            "".into(),
+            Line::from(vec![
+                Span::styled(
+                    if local.pulse_inc > 0 { "  ▲ INCREMENT  " } else { "  j increment  " },
+                    Style::default().fg(if local.pulse_inc > 0 { Color::Green } else { Color::DarkGray })
+                ),
+            ]).alignment(Alignment::Center),
+            Line::from(vec![
+                Span::styled(
+                    if local.pulse_dec > 0 { "  ▼ DECREMENT  " } else { "  k decrement  " },
+                    Style::default().fg(if local.pulse_dec > 0 { Color::Red } else { Color::DarkGray })
+                ),
+            ]).alignment(Alignment::Center),
+        ]).block(counter_block);
+            
         frame.render_widget(counter_p, left_chunks[0]);
+        
+        let mini_sparkline = Sparkline::default()
+            .data(&counter_state.history)
+            .style(Style::default().fg(if local.pulse_inc > 0 { Color::Green } else if local.pulse_dec > 0 { Color::Red } else { Color::DarkGray }));
+        frame.render_widget(mini_sparkline, counter_sub_layout[1]);
 
         let controls_text = vec![
             " [L] Toggle Layout Mode ".into(),
@@ -257,6 +328,7 @@ impl Component for CounterPage {
                             s.history.push(s.counter as u64);
                             if s.history.len() > 50 { s.history.remove(0); }
                         });
+                        let _ = self.local.update(|s| s.pulse_inc = 100);
                         self.log("Mouse: Left Click -> Inc".to_string());
                         None
                     }
@@ -266,6 +338,7 @@ impl Component for CounterPage {
                             s.history.push(s.counter as u64);
                             if s.history.len() > 50 { s.history.remove(0); }
                         });
+                        let _ = self.local.update(|s| s.pulse_dec = 100);
                         self.log("Mouse: Right Click -> Dec".to_string());
                         None
                     }
@@ -275,6 +348,7 @@ impl Component for CounterPage {
                             s.history.push(s.counter as u64);
                             if s.history.len() > 50 { s.history.remove(0); }
                         });
+                        let _ = self.local.update(|s| s.pulse_inc = 100);
                         self.log("Mouse: Scroll Up -> Inc".to_string());
                         None
                     }
@@ -284,6 +358,7 @@ impl Component for CounterPage {
                             s.history.push(s.counter as u64);
                             if s.history.len() > 50 { s.history.remove(0); }
                         });
+                        let _ = self.local.update(|s| s.pulse_dec = 100);
                         self.log("Mouse: Scroll Down -> Dec".to_string());
                         None
                     }
@@ -325,6 +400,7 @@ impl Component for CounterPage {
                     s.history.push(s.counter as u64);
                     if s.history.len() > 50 { s.history.remove(0); }
                 });
+                let _ = self.local.update(|s| s.pulse_inc = 100);
                 self.log(format!("Action: Inc -> {}", self.state.read(|s| s.counter).unwrap_or(0)));
                 None
             }
@@ -334,6 +410,7 @@ impl Component for CounterPage {
                     s.history.push(s.counter as u64);
                     if s.history.len() > 50 { s.history.remove(0); }
                 });
+                let _ = self.local.update(|s| s.pulse_dec = 100);
                 self.log(format!("Action: Dec -> {}", self.state.read(|s| s.counter).unwrap_or(0)));
                 None
             }

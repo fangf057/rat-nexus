@@ -210,52 +210,72 @@ impl Application {
         // Initial render
         let _ = app.re_render_tx.send(());
 
-        loop {
-            tokio::select! {
-                _ = re_render_rx.recv() => {
-                    terminal.draw(|frame| {
-                        let area = frame.area();
-                        let mut cx = Context::<dyn AnyComponent>::new(app.clone(), area);
-                        // In a real GPUI-like app, the root would be an Entity<dyn AnyComponent>.
-                        // For now, we just pass the context.
-                        let mut guard = root.lock().expect("Root mutex poisoned during render");
-                        guard.render_any(frame, &mut cx);
-                    })?;
-                }
-                event_ready = async { event::poll(Duration::from_millis(100)) } => {
-                    if let Ok(true) = event_ready {
-                        let crossterm_event = event::read()?;
-                        let internal_event = match crossterm_event {
-                            CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => Some(Event::Key(key)),
-                            CrosstermEvent::Mouse(mouse) => Some(Event::Mouse(mouse)),
-                            CrosstermEvent::Resize(w, h) => Some(Event::Resize(w, h)),
-                            CrosstermEvent::FocusGained => Some(Event::FocusGained),
-                            CrosstermEvent::FocusLost => Some(Event::FocusLost),
-                            CrosstermEvent::Paste(s) => Some(Event::Paste(s)),
-                            _ => None,
-                        };
-
-                        if let Some(event) = internal_event {
-                            let size = terminal.size()?;
-                            let area = Rect::new(0, 0, size.width, size.height);
-                            let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
-                            
-                            let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
-                            let action = guard.handle_event_any(event, &mut cx);
-                            app.refresh(); // Trigger refresh after any event handling
-
-                            if let Some(action) = action {
-                                match action {
-                                    Action::Quit => {
-                                        // Lifecycle: Call on_shutdown
-                                        guard.on_shutdown_any(&mut cx);
-                                        return Ok(());
-                                    }
-                                    _ => {}
-                                }
+        // Dedicated event polling task to avoid blocking the main loop
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        tokio::task::spawn_blocking(move || {
+            loop {
+                // Lower poll duration for higher responsiveness
+                match event::poll(Duration::from_millis(20)) {
+                    Ok(true) => {
+                        if let Ok(e) = event::read() {
+                            if event_tx.send(e).is_err() {
+                                break;
                             }
                         }
                     }
+                    Ok(false) => {}
+                    Err(_) => break,
+                }
+            }
+        });
+
+        loop {
+            tokio::select! {
+                // Prioritize event handling for lower latency
+                biased;
+
+                Some(crossterm_event) = event_rx.recv() => {
+                    let internal_event = match crossterm_event {
+                        CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => Some(Event::Key(key)),
+                        CrosstermEvent::Mouse(mouse) => Some(Event::Mouse(mouse)),
+                        CrosstermEvent::Resize(w, h) => Some(Event::Resize(w, h)),
+                        CrosstermEvent::FocusGained => Some(Event::FocusGained),
+                        CrosstermEvent::FocusLost => Some(Event::FocusLost),
+                        CrosstermEvent::Paste(s) => Some(Event::Paste(s)),
+                        _ => None,
+                    };
+
+                    if let Some(event) = internal_event {
+                        let size = terminal.size()?;
+                        let area = Rect::new(0, 0, size.width, size.height);
+                        let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
+                        
+                        let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
+                        let action = guard.handle_event_any(event, &mut cx);
+                        app.refresh(); // Trigger refresh after any event handling
+
+                        if let Some(action) = action {
+                            match action {
+                                Action::Quit => {
+                                    guard.on_shutdown_any(&mut cx);
+                                    return Ok(());
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                _ = re_render_rx.recv() => {
+                    // Drain all pending refresh requests to compact them into a single frame
+                    while re_render_rx.try_recv().is_ok() {}
+
+                    terminal.draw(|frame| {
+                        let area = frame.area();
+                        let mut cx = Context::<dyn AnyComponent>::new(app.clone(), area);
+                        let mut guard = root.lock().expect("Root mutex poisoned during render");
+                        guard.render_any(frame, &mut cx);
+                    })?;
                 }
             }
         }
