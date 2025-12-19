@@ -12,26 +12,31 @@ use crossterm::{
 use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::runtime::{Runtime, Handle};
 
 /// Application context providing access to global services.
 pub struct Context {
     /// The root component to render, if set by the user.
     root: Arc<Mutex<Option<Arc<Mutex<dyn Component>>>>>,
+    /// Handle to the async runtime for spawning tasks.
+    rt_handle: Handle,
 }
 
 impl Context {
     /// Create a new entity with the given value.
-    pub fn new_entity<T>(&self, value: T) -> Entity<T> {
+    pub fn new_entity<T>(&self, value: T) -> Entity<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
         Entity::new(value)
     }
 
-    /// Schedule a task to be executed later (placeholder).
-    pub fn spawn<F>(&self, _future: F)
+    /// Schedule a task to be executed later.
+    pub fn spawn<F>(&self, future: F)
     where
-        F: std::future::Future<Output = ()> + 'static,
+        F: std::future::Future<Output = ()> + Send + 'static,
     {
-        // In a real implementation, this would schedule the future on an async runtime.
-        // For simplicity, we do nothing.
+        self.rt_handle.spawn(future);
     }
 
     /// Set the root component of the application.
@@ -54,9 +59,16 @@ impl Application {
     where
         F: FnOnce(&Context) -> io::Result<()>,
     {
+        // Create a Tokio runtime.
+        let rt = Runtime::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let handle = rt.handle().clone();
+
         // Create a placeholder for the root component.
         let root = Arc::new(Mutex::new(None));
-        let context = Context { root: root.clone() };
+        let context = Context {
+            root: root.clone(),
+            rt_handle: handle,
+        };
 
         // Allow the user to set up their components via the context.
         setup(&context)?;
@@ -67,8 +79,14 @@ impl Application {
             guard.clone().unwrap_or_else(|| Arc::new(Mutex::new(DummyComponent)))
         };
 
-        // Run the main loop.
-        self.run_loop(actual_root)
+        // Run the main loop inside the runtime.
+        rt.block_on(async move {
+            // Spawn a background task that runs the main loop (blocking).
+            let join_handle = tokio::task::spawn_blocking(move || {
+                self.run_loop(actual_root)
+            });
+            join_handle.await.unwrap()
+        })
     }
 
     fn run_loop(&self, root: Arc<Mutex<dyn Component>>) -> io::Result<()> {

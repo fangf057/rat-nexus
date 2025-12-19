@@ -24,7 +24,7 @@ pub enum Action {
 ///
 /// Components are the building blocks of the TUI application.
 /// They can render themselves and handle events.
-pub trait Component {
+pub trait Component: Send + Sync {
     /// Render the component into the given area.
     fn render(&self, f: &mut Frame, area: Rect);
 

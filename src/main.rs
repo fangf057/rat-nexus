@@ -15,7 +15,7 @@ use application::{Application, Context};
 use crossterm::event::KeyCode;
 
 // Define application state (Model)
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct AppState {
     counter: i32,
 }
