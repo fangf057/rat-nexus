@@ -41,43 +41,82 @@
 下面是一个使用 `Rat-Nexus` 构建的最简单计数器示例：
 
 ```rust
-use rat_nexus::{Application, Component, Context, EventContext, Event, Action, Entity};
-use ratatui::widgets::Paragraph;
 use crossterm::event::KeyCode;
+use rat_nexus::{Action, Application, Component, Context, Entity, Event, EventContext};
+use ratatui::{
+    layout::{Alignment, Constraint, Layout},
+    style::{Color, Stylize},
+    widgets::{Block, BorderType, Paragraph},
+};
 use std::sync::{Arc, Mutex};
 
-// 1. 定义状态 (State)
-struct CounterState { count: i32 }
+struct CounterState {
+    count: i32,
+}
 
-// 2. 定义组件 (Component)
 struct CounterComponent {
     state: Entity<CounterState>,
 }
 
 impl Component for CounterComponent {
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        // 订阅状态更新，当 state 改变时自动重绘
         cx.subscribe(&self.state);
         let count = self.state.read(|s| s.count).unwrap_or(0);
-        
+
+        let v_layout = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(5),
+            Constraint::Fill(1),
+        ])
+        .split(cx.area);
+
+        let area = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(40),
+            Constraint::Fill(1),
+        ])
+        .split(v_layout[1])[1];
+
+        let color = if count >= 0 {
+            Color::Yellow
+        } else {
+            Color::Blue
+        };
+
+        let text = vec![
+            ratatui::text::Line::from(vec!["Value: ".into(), format!("{count}").bold().fg(color)]),
+            "".into(),
+            ratatui::text::Line::from(" [j]↑  [k]↓  [q]Quit ").dim(),
+        ];
+
         frame.render_widget(
-            Paragraph::new(format!("Count: {}. Press 'j' to increment.", count)),
-            cx.area
+            Paragraph::new(text).alignment(Alignment::Center).block(
+                Block::bordered()
+                    .title(" Counter ")
+                    .title_alignment(Alignment::Center)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Color::Indexed(244)),
+            ),
+            area,
         );
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
         if let Event::Key(key) = event {
             if key.code == KeyCode::Char('j') {
-                // 更新状态
-                self.state.update(|s| s.count += 1);
+                _ = self.state.update(|s| s.count += 1);
+            }
+            if key.code == KeyCode::Char('k') {
+                _ = self.state.update(|s| s.count -= 1);
+            }
+            if key.code == KeyCode::Char('q') {
+                return Some(Action::Quit);
             }
         }
         None
     }
 }
 
-// 3. 运行应用 (Run)
 fn main() -> anyhow::Result<()> {
     Application::new().run(|cx| {
         let state = cx.new_entity(CounterState { count: 0 });
@@ -86,6 +125,7 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })
 }
+
 ```
 
 ## 🏁 运行演示
