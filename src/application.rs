@@ -1,7 +1,6 @@
 //! High‑level Application abstraction inspired by GPUI.
 
-use crate::component::Component;
-use crate::component::traits::{Event, Action};
+use crate::component::traits::{Event, Action, Component, AnyComponent};
 use crate::state::Entity;
 use ratatui::prelude::*;
 use crossterm::{
@@ -12,17 +11,19 @@ use crossterm::{
 use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::runtime::{Runtime, Handle};
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 /// Application context providing access to global services.
-pub struct Context {
+#[derive(Clone)]
+pub struct AppContext {
     /// The root component to render, if set by the user.
-    root: Arc<Mutex<Option<Arc<Mutex<dyn Component>>>>>,
-    /// Handle to the async runtime for spawning tasks.
-    rt_handle: Handle,
+    root: Arc<Mutex<Option<Arc<Mutex<dyn AnyComponent>>>>>,
+    /// Internal: Channel to trigger a re-render.
+    re_render_tx: mpsc::UnboundedSender<()>,
 }
 
-impl Context {
+impl AppContext {
     /// Create a new entity with the given value.
     pub fn new_entity<T>(&self, value: T) -> Entity<T>
     where
@@ -36,14 +37,67 @@ impl Context {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        self.rt_handle.spawn(future);
+        tokio::spawn(future);
     }
 
     /// Set the root component of the application.
-    pub fn set_root(&self, root: Arc<Mutex<dyn Component>>) {
+    pub fn set_root(&self, root: Arc<Mutex<dyn AnyComponent>>) {
         *self.root.lock().unwrap() = Some(root);
+        self.refresh();
+    }
+
+    /// Trigger a re-render.
+    pub fn refresh(&self) {
+        let _ = self.re_render_tx.send(());
     }
 }
+
+/// A specialized context passed to component methods.
+pub struct Context<V: ?Sized> {
+    pub app: AppContext,
+    pub area: Rect,
+    _view: std::marker::PhantomData<V>,
+}
+
+impl<V: ?Sized> Context<V> {
+    pub fn new(app: AppContext, area: Rect) -> Self {
+        Self {
+            app,
+            area,
+            _view: std::marker::PhantomData,
+        }
+    }
+
+    /// Access the underlying AppContext.
+    pub fn app(&self) -> &AppContext {
+        &self.app
+    }
+
+    /// Subscribe to an entity's changes.
+    pub fn subscribe<T>(&mut self, entity: &Entity<T>) 
+    where T: Clone + Send + Sync + 'static
+    {
+        let mut rx = entity.subscribe();
+        let tx = self.app.re_render_tx.clone();
+        tokio::spawn(async move {
+            while let Ok(_) = rx.changed().await {
+                let _ = tx.send(());
+            }
+        });
+    }
+
+    /// Cast this context to another view type.
+    pub fn cast<U: ?Sized>(&self) -> Context<U> {
+        Context {
+            app: self.app.clone(),
+            area: self.area,
+            _view: std::marker::PhantomData,
+        }
+    }
+}
+
+/// EventContext for event handling, currently identical to Context but renamed for clarity.
+pub type EventContext<V> = Context<V>;
 
 /// Main application handle.
 pub struct Application;
@@ -57,49 +111,38 @@ impl Application {
     /// Run the application with the given closure that receives a context.
     pub fn run<F>(self, setup: F) -> io::Result<()>
     where
-        F: FnOnce(&Context) -> io::Result<()>,
+        F: FnOnce(&AppContext) -> io::Result<()>,
     {
-        // Create a Tokio runtime.
         let rt = Runtime::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        let handle = rt.handle().clone();
-
-        // Create a placeholder for the root component.
+        
+        let (re_render_tx, re_render_rx) = mpsc::unbounded_channel();
         let root = Arc::new(Mutex::new(None));
-        let context = Context {
+        let app_context = AppContext {
             root: root.clone(),
-            rt_handle: handle,
+            re_render_tx,
         };
 
-        // Allow the user to set up their components via the context.
-        setup(&context)?;
+        setup(&app_context)?;
 
-        // Determine the actual root component (user may have set it).
         let actual_root = {
             let guard = root.lock().unwrap();
-            guard.clone().unwrap_or_else(|| Arc::new(Mutex::new(DummyComponent)))
+            guard.clone().unwrap_or_else(|| Arc::new(Mutex::new(DummyView)))
         };
 
-        // Run the main loop inside the runtime.
         rt.block_on(async move {
-            // Spawn a background task that runs the main loop (blocking).
-            let join_handle = tokio::task::spawn_blocking(move || {
-                self.run_loop(actual_root)
-            });
-            join_handle.await.unwrap()
+            self.run_loop(app_context, actual_root, re_render_rx).await
         })
     }
 
-    fn run_loop(&self, root: Arc<Mutex<dyn Component>>) -> io::Result<()> {
-        // Setup terminal
+    async fn run_loop(&self, app: AppContext, root: Arc<Mutex<dyn AnyComponent>>, re_render_rx: mpsc::UnboundedReceiver<()>) -> io::Result<()> {
         enable_raw_mode()?;
         let mut stdout = stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        let result = self.run_app_loop(&mut terminal, root);
+        let result = self.run_app_loop(app, &mut terminal, root, re_render_rx).await;
 
-        // Restore terminal
         disable_raw_mode()?;
         execute!(
             terminal.backend_mut(),
@@ -111,53 +154,57 @@ impl Application {
         result
     }
 
-    fn run_app_loop(
+    async fn run_app_loop(
         &self,
+        app: AppContext,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        root: Arc<Mutex<dyn Component>>,
+        root: Arc<Mutex<dyn AnyComponent>>,
+        mut re_render_rx: mpsc::UnboundedReceiver<()>,
     ) -> io::Result<()> {
-        loop {
-            terminal.draw(|frame| {
-                let component = root.lock().unwrap();
-                component.render(frame, frame.area());
-            })?;
+        // Initial render
+        let _ = app.re_render_tx.send(());
 
-            if event::poll(Duration::from_millis(250))? {
-                if let CrosstermEvent::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        let mut component = root.lock().unwrap();
-                        let event = Event::Key(key);
-                        if let Some(action) = component.handle_event(event) {
-                            match action {
-                                Action::Navigate(_) => {
-                                    // In this simple example, navigation is not supported.
+        loop {
+            tokio::select! {
+                _ = re_render_rx.recv() => {
+                    terminal.draw(|frame| {
+                        let area = frame.area();
+                        let mut cx = Context::<dyn AnyComponent>::new(app.clone(), area);
+                        let mut guard = root.lock().unwrap();
+                        guard.render_any(frame, &mut cx);
+                    })?;
+                }
+                event_ready = async { event::poll(Duration::from_millis(100)) } => {
+                    if let Ok(true) = event_ready {
+                        if let CrosstermEvent::Key(key) = event::read()? {
+                            if key.kind == KeyEventKind::Press {
+                                let event = Event::Key(key);
+                                let size = terminal.size()?;
+                                let area = Rect::new(0, 0, size.width, size.height);
+                                let mut cx = EventContext::<dyn AnyComponent>::new(app.clone(), area);
+                                
+                                let mut guard = root.lock().unwrap();
+                                if let Some(action) = guard.handle_event_any(event, &mut cx) {
+                                    match action {
+                                        Action::Quit => return Ok(()),
+                                        _ => {}
+                                    }
                                 }
-                                Action::Back => {
-                                    // Back navigation is handled by the component itself.
-                                }
-                                Action::Quit => break,
-                                Action::Noop => (),
                             }
                         }
                     }
                 }
             }
         }
-        Ok(())
     }
 }
 
-/// Dummy component used as a fallback root.
-struct DummyComponent;
+struct DummyView;
 
-impl Component for DummyComponent {
-    fn render(&self, f: &mut Frame, area: Rect) {
+impl Component for DummyView {
+    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
         let paragraph = ratatui::widgets::Paragraph::new("No component set")
             .alignment(ratatui::layout::Alignment::Center);
-        f.render_widget(paragraph, area);
-    }
-
-    fn handle_event(&mut self, _event: Event) -> Option<Action> {
-        None
+        frame.render_widget(paragraph, cx.area);
     }
 }

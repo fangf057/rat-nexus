@@ -1,6 +1,4 @@
 //! Example TUI application using the ratatui scaffolding with gpui‑style Application.
-//!
-//! This example demonstrates the new Application abstraction with context‑based state management.
 
 mod component;
 mod router;
@@ -11,7 +9,7 @@ use component::Component;
 use component::traits::{Event, Action};
 use router::traits::Route;
 use state::Entity;
-use application::{Application, Context};
+use application::{Application, Context, EventContext};
 use crossterm::event::KeyCode;
 
 // Define application state (Model)
@@ -40,13 +38,13 @@ impl Menu {
 }
 
 impl Component for Menu {
-    fn render(&self, f: &mut ratatui::prelude::Frame, area: ratatui::prelude::Rect) {
+    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
         use ratatui::widgets::{Block, Borders, List, ListItem};
         use ratatui::style::{Style, Modifier};
 
         let block = Block::default().title("Main Menu").borders(Borders::ALL);
-        let inner_area = block.inner(area);
-        f.render_widget(block, area);
+        let inner_area = block.inner(cx.area);
+        frame.render_widget(block, cx.area);
 
         let items: Vec<ListItem> = self.options.iter()
             .enumerate()
@@ -63,10 +61,10 @@ impl Component for Menu {
         let list = List::new(items)
             .highlight_symbol("> ")
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-        f.render_widget(list, inner_area);
+        frame.render_widget(list, inner_area);
     }
 
-    fn handle_event(&mut self, event: Event) -> Option<Action> {
+    fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
         match event {
             Event::Key(key) if key.code == KeyCode::Up => {
                 if self.selected > 0 {
@@ -109,15 +107,15 @@ impl CounterPage {
 }
 
 impl Component for CounterPage {
-    fn render(&self, f: &mut ratatui::prelude::Frame, area: ratatui::prelude::Rect) {
+    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
         let counter = self.state.get().counter;
         let text = format!("{} - Counter: {}", self.title, counter);
         let paragraph = ratatui::widgets::Paragraph::new(text)
             .alignment(ratatui::layout::Alignment::Center);
-        f.render_widget(paragraph, area);
+        frame.render_widget(paragraph, cx.area);
     }
 
-    fn handle_event(&mut self, event: Event) -> Option<Action> {
+    fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
         match event {
             Event::Key(key) if key.code == KeyCode::Char('j') => {
                 let mut state = self.state.get_mut();
@@ -164,7 +162,6 @@ impl Root {
     }
 
     fn navigate(&mut self, route: Route) {
-        // Push current route to history before changing
         if self.current != route {
             self.history.push(self.current.clone());
             self.current = route;
@@ -179,33 +176,45 @@ impl Root {
             false
         }
     }
-
-    fn current_component(&mut self) -> &mut dyn Component {
-        match self.current.as_str() {
-            "menu" => &mut self.menu,
-            "page_a" => &mut self.page_a,
-            "page_b" => &mut self.page_b,
-            _ => &mut self.menu, // fallback to menu
-        }
-    }
 }
 
 impl Component for Root {
-    fn render(&self, f: &mut ratatui::prelude::Frame, area: ratatui::prelude::Rect) {
-        // Delegate rendering to the appropriate component based on current route.
-        // Since we cannot mutate self here, we'll match on self.current and call render on the appropriate component.
-        // This is acceptable because render only requires &self.
-        match self.current.as_str() {
-            "menu" => self.menu.render(f, area),
-            "page_a" => self.page_a.render(f, area),
-            "page_b" => self.page_b.render(f, area),
-            _ => self.menu.render(f, area),
+    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
+        let current = self.current.clone();
+        match current.as_str() {
+            "page_a" => {
+                let mut cx = cx.cast::<CounterPage>();
+                self.page_a.render(frame, &mut cx);
+            }
+            "page_b" => {
+                let mut cx = cx.cast::<CounterPage>();
+                self.page_b.render(frame, &mut cx);
+            }
+            _ => {
+                let mut cx = cx.cast::<Menu>();
+                self.menu.render(frame, &mut cx);
+            }
         }
     }
 
-    fn handle_event(&mut self, event: Event) -> Option<Action> {
-        let component = self.current_component();
-        if let Some(action) = component.handle_event(event) {
+    fn handle_event(&mut self, event: Event, cx: &mut EventContext<Self>) -> Option<Action> {
+        let current = self.current.clone();
+        let action = match current.as_str() {
+            "page_a" => {
+                let mut cx = cx.cast::<CounterPage>();
+                self.page_a.handle_event(event, &mut cx)
+            }
+            "page_b" => {
+                let mut cx = cx.cast::<CounterPage>();
+                self.page_b.handle_event(event, &mut cx)
+            }
+            _ => {
+                let mut cx = cx.cast::<Menu>();
+                self.menu.handle_event(event, &mut cx)
+            }
+        };
+
+        if let Some(action) = action {
             match action {
                 Action::Navigate(route) => {
                     self.navigate(route);
@@ -215,7 +224,6 @@ impl Component for Root {
                     if self.go_back() {
                         None
                     } else {
-                        // If no history, maybe quit? For now, do nothing.
                         None
                     }
                 }
@@ -232,22 +240,13 @@ fn main() -> std::io::Result<()> {
     let app = Application::new();
 
     app.run(move |cx| {
-        // Create shared state using the context
         let shared_state = cx.new_entity(AppState::default());
-
-        // Create root component
         let root = Root::new(shared_state);
-
-        // Wrap root in Arc<Mutex<dyn Component>> and set it as the application root.
-        use std::sync::{Arc, Mutex};
-        let root = Arc::new(Mutex::new(root));
+        let root = std::sync::Arc::new(std::sync::Mutex::new(root));
         cx.set_root(root);
 
-        // We can also spawn async tasks if needed
         cx.spawn(async move {
-            // Simulate some async work
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            println!("Async task completed!");
         });
 
         Ok(())

@@ -1,6 +1,6 @@
 //! Router trait definition.
 
-use crate::component::Component;
+use crate::component::traits::AnyComponent;
 
 /// Represents a route identifier.
 pub type Route = String;
@@ -14,5 +14,5 @@ pub trait Router {
     fn current_route(&self) -> &Route;
 
     /// Get a mutable reference to the current component.
-    fn current_component(&mut self) -> &mut dyn Component;
+    fn current_component(&mut self) -> &mut dyn AnyComponent;
 }

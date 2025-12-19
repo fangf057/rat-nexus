@@ -36,17 +36,18 @@ pub fn component(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #input
 
         impl ::rat_setup::component::Component for #struct_name {
-            fn render(&self, f: &mut ::ratatui::prelude::Frame, area: ::ratatui::prelude::Rect) {
+            fn render(&mut self, frame: &mut ::ratatui::prelude::Frame, cx: &mut ::rat_setup::application::Context<Self>) {
                 // Default implementation: render a placeholder
                 let text = format!("Component {} (implement render)", stringify!(#struct_name));
                 let paragraph = ::ratatui::widgets::Paragraph::new(text)
                     .alignment(::ratatui::layout::Alignment::Center);
-                f.render_widget(paragraph, area);
+                frame.render_widget(paragraph, cx.area);
             }
 
-            fn handle_event(&mut self, event: ::rat_setup::component::traits::Event) -> Option<::rat_setup::component::traits::Action> {
+            fn handle_event(&mut self, event: ::rat_setup::component::traits::Event, cx: &mut ::rat_setup::application::EventContext<Self>) -> Option<::rat_setup::component::traits::Action> {
                 // Default implementation: no handling
                 let _ = event;
+                let _ = cx;
                 None
             }
         }
