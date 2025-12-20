@@ -57,7 +57,7 @@ impl Component for Menu {
                 Constraint::Length(3),
             ])
             .margin(2)
-            .split(cx.area);
+            .split(frame.area());
 
         let header = Paragraph::new(" NEXUS SYSTEM MENU ")
             .bold()

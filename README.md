@@ -1,49 +1,38 @@
-# Rat-Nexus TUI 框架
+# Rat-Nexus
 
-一个受 GPUI 启发的、功能强大的 TUI（终端用户界面）框架，基于 [Ratatui](https://github.com/ratatui-org/ratatui) 构建。
+一个现代化的 Rust TUI 框架，受 [GPUI](https://github.com/zed-industries/zed) 启发，基于 [Ratatui](https://github.com/ratatui-org/ratatui) 构建。
 
-`Rat-Nexus` 为构建复杂的终端应用程序提供了一种现代化的响应式架构。它具有基于实体的状态管理系统、完善的生命周期钩子、可取消的异步任务以及类型安全的路由系统。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![demo](./asserts/bkg.png)
 
-## 🚀 特性
+## 为什么选择 Rat-Nexus？
 
-- **GPUI 启发式响应性**: 状态通过 `Entity<T>` 管理，自动通知订阅者并触发重新渲染。
-- **完善的生命周期管理**:
-  - `on_mount`: 组件首次挂载时调用一次，适合启动后台任务。
-  - `on_enter`: 每次进入组件视图时调用（导航进入）。
-  - `on_exit`: 离开组件视图时调用，用于清理资源。
-  - `on_shutdown`: 应用程序退出前的钩子。
-- **可取消的异步任务**: `TaskHandle` 和 `TaskTracker` 支持任务生命周期管理，组件退出时自动取消任务。
-- **类型安全路由**: `Router<R>` 泛型路由器 + `define_routes!` 宏实现编译时路由检查。
-- **简化的状态订阅**: `cx.watch()` 方法一行代码完成订阅和读取。
-- **一流的异步支持**: 在任何组件中无缝生成后台任务，并与应用状态安全交互。
+构建复杂的 TUI 应用时，你可能会遇到这些问题：
 
-## 🛠 项目结构
+- **状态管理混乱** — 手动传递状态，难以追踪变更
+- **生命周期不清晰** — 不知道何时初始化、何时清理
+- **异步任务泄漏** — 后台任务无法取消，组件销毁后仍在运行
+- **路由硬编码** — 字符串路由容易拼写错误
 
-```text
-.
-├── Cargo.toml          # 工作区配置
-├── rat-nexus/          # 核心框架库
-│   ├── src/
-│   │   ├── application.rs   # 应用循环、Context、AppContext
-│   │   ├── component/       # Component trait 定义
-│   │   ├── state/           # Entity 响应式状态
-│   │   ├── router/          # Router 和 define_routes! 宏
-│   │   ├── task.rs          # TaskHandle、TaskTracker
-│   │   ├── error.rs         # 错误类型
-│   │   └── lib.rs           # 公共接口导出
-└── rat-demo/           # 示例应用程序
-    ├── src/
-    │   ├── pages/           # UI 页面 (菜单、计数器、贪吃蛇)
-    │   ├── model.rs         # 状态数据定义
-    │   ├── app.rs           # 根组件/路由逻辑
-    │   └── main.rs          # 程序入口
+Rat-Nexus 通过提供 **响应式状态**、**清晰的生命周期**、**可取消的任务** 和 **类型安全路由** 来解决这些问题。
+
+## 安装
+
+在 `Cargo.toml` 中添加依赖：
+
+```toml
+[dependencies]
+rat-nexus = { path = "rat-nexus" }
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
 ```
 
-## ⌨️ 快速上手
+## 快速开始
 
-### 最简计数器示例
+一个最简单的计数器：
 
 ```rust
 use crossterm::event::KeyCode;
@@ -55,17 +44,20 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 
+// 1. 定义状态
 struct CounterState {
     count: i32,
 }
 
-struct CounterComponent {
+// 2. 定义组件
+struct Counter {
     state: Entity<CounterState>,
 }
 
-impl Component for CounterComponent {
+// 3. 实现 Component trait
+impl Component for Counter {
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        // 使用 watch 一行完成订阅+读取
+        // watch = subscribe + read，状态变更时自动重渲染
         let count = cx.watch(&self.state, |s| s.count).unwrap_or(0);
 
         let area = Layout::vertical([
@@ -73,175 +65,153 @@ impl Component for CounterComponent {
             Constraint::Length(5),
             Constraint::Fill(1),
         ])
-        .split(cx.area)[1];
+        .split(frame.area())[1];
 
         let area = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(40),
+            Constraint::Length(30),
             Constraint::Fill(1),
         ])
         .split(area)[1];
 
-        let color = if count >= 0 { Color::Yellow } else { Color::Blue };
-
-        let text = vec![
-            ratatui::text::Line::from(vec!["Value: ".into(), format!("{count}").bold().fg(color)]),
-            "".into(),
-            ratatui::text::Line::from(" [j]↑  [k]↓  [q]Quit ").dim(),
-        ];
-
         frame.render_widget(
-            Paragraph::new(text).alignment(Alignment::Center).block(
-                Block::bordered()
-                    .title(" Counter ")
-                    .title_alignment(Alignment::Center)
-                    .border_type(BorderType::Rounded),
-            ),
+            Paragraph::new(format!("Count: {count}"))
+                .alignment(Alignment::Center)
+                .block(Block::bordered().title(" Counter ").border_type(BorderType::Rounded)),
             area,
         );
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
-        match event {
-            Event::Key(key) => match key.code {
-                KeyCode::Char('j') => { let _ = self.state.update(|s| s.count += 1); }
-                KeyCode::Char('k') => { let _ = self.state.update(|s| s.count -= 1); }
+        if let Event::Key(key) = event {
+            match key.code {
+                KeyCode::Char('j') => { self.state.update(|s| s.count += 1); }
+                KeyCode::Char('k') => { self.state.update(|s| s.count -= 1); }
                 KeyCode::Char('q') => return Some(Action::Quit),
                 _ => {}
-            },
-            _ => {}
+            }
         }
         None
     }
 }
 
+// 4. 启动应用
 fn main() -> anyhow::Result<()> {
     Application::new().run(|cx| {
         let state = cx.new_entity(CounterState { count: 0 });
-        let root = Arc::new(Mutex::new(CounterComponent { state }));
-        cx.set_root(root)?;
+        cx.set_root(Arc::new(Mutex::new(Counter { state })))?;
         Ok(())
     })
 }
 ```
 
-## 🏁 运行演示
+## 核心概念
 
-### 前置条件
+### Entity：响应式状态
 
-- Rust (最新稳定版)
-- Cargo
+`Entity<T>` 是状态的容器，当状态变更时自动通知订阅者：
 
-### 运行
+```rust
+// 创建
+let state = cx.new_entity(MyState::default());
 
-```bash
-cargo run
+// 更新（自动触发重渲染）
+state.update(|s| s.counter += 1);
+
+// 读取
+let value = state.read(|s| s.counter).unwrap();
+
+// 订阅 + 读取（推荐在 render 中使用）
+let value = cx.watch(&state, |s| s.counter).unwrap();
 ```
 
-### 操作指南
-
-- `↑/↓ / Enter`: 导航菜单并进入页面
-- `j / k`: 增加或减少计数器
-- `w`: 启动异步后台任务
-- `l`: 切换布局
-- `c`: 清空日志
-- `m`: 返回主菜单
-- `q`: 退出
-
-**贪吃蛇游戏**:
-- `←↑↓→` 或 `wasd`: 控制方向
-- `Space`: 暂停/继续
-- `r`: 重新开始
-
-## 💡 核心概念
-
-### 1. 生命周期钩子
+### Component：组件生命周期
 
 ```rust
 impl Component for MyPage {
-    /// 首次挂载时调用一次 - 适合启动后台任务
+    /// 首次挂载，只调用一次
+    /// 适合：启动后台任务、初始化资源
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        let handle = cx.spawn_task(|_| async move {
+        let handle = cx.spawn_task(|app| async move {
             loop {
-                // 后台工作...
+                // 定时刷新...
+                app.refresh();
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
         self.tasks.track(handle);
     }
 
-    /// 每次导航进入时调用
-    fn on_enter(&mut self, cx: &mut Context<Self>) {
-        // 重置临时状态等
+    /// 每次进入视图
+    /// 适合：重置临时状态、刷新数据
+    fn on_enter(&mut self, _cx: &mut Context<Self>) {
+        // ...
     }
 
-    /// 离开视图时调用
-    fn on_exit(&mut self, cx: &mut Context<Self>) {
-        // 取消所有后台任务
+    /// 离开视图
+    /// 适合：暂停任务、保存状态
+    fn on_exit(&mut self, _cx: &mut Context<Self>) {
         self.tasks.abort_all();
     }
 
-    /// 应用关闭时调用
-    fn on_shutdown(&mut self, cx: &mut Context<Self>) {
-        // 最终清理
+    /// 应用退出前
+    /// 适合：持久化、清理资源
+    fn on_shutdown(&mut self, _cx: &mut Context<Self>) {
+        // ...
+    }
+
+    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
+        // 使用 frame.area() 获取渲染区域
+    }
+
+    fn handle_event(&mut self, event: Event, cx: &mut EventContext<Self>) -> Option<Action> {
+        None
     }
 }
 ```
 
-### 2. 可取消的异步任务
+### TaskTracker：可取消的异步任务
+
+避免任务泄漏，组件销毁时自动清理：
 
 ```rust
-use rat_nexus::{TaskHandle, TaskTracker};
+use rat_nexus::TaskTracker;
 
 struct MyComponent {
-    tasks: TaskTracker,  // 自动管理多个任务
+    tasks: TaskTracker,
 }
 
 impl Component for MyComponent {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        // spawn_task 返回可取消的 handle
+        // spawn_task 返回可取消的 TaskHandle
         let handle = cx.spawn_task(|app| async move {
             loop {
-                // 异步工作...
                 app.refresh();
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
 
-        // 追踪任务，组件退出时自动取消
+        // 追踪任务
         self.tasks.track(handle);
     }
 
     fn on_exit(&mut self, _cx: &mut Context<Self>) {
-        self.tasks.abort_all();  // 取消所有任务
+        // 取消所有任务
+        self.tasks.abort_all();
     }
 }
 
 // TaskTracker 实现了 Drop，析构时自动 abort_all()
 ```
 
-### 3. 实体与响应式
+### Router：类型安全路由
 
-```rust
-// 创建实体
-let state = cx.new_entity(MyState::default());
-
-// 更新状态 - 自动通知订阅者
-self.state.update(|s| s.counter += 1);
-
-// 读取状态
-let value = self.state.read(|s| s.counter).unwrap();
-
-// 订阅+读取一体化
-let value = cx.watch(&self.state, |s| s.counter).unwrap();
-```
-
-### 4. 类型安全路由
+编译时检查路由名称，告别拼写错误：
 
 ```rust
 use rat_nexus::{define_routes, Router};
 
-// 使用宏定义路由枚举
+// 定义路由枚举
 define_routes! {
     Menu,
     Counter,
@@ -249,44 +219,50 @@ define_routes! {
     Snake,
 }
 
-// 创建路由器
+// 使用
 let mut router = Router::new(Route::Menu);
 
-// 导航
-router.navigate(Route::Counter);  // 编译时类型检查！
+router.navigate(Route::Counter);  // 编译时类型检查
 
-// 返回
 if router.can_go_back() {
     router.go_back();
 }
 
-// 获取当前路由
 match router.current() {
     Route::Menu => { /* ... */ }
     Route::Counter => { /* ... */ }
-    // ...
+    _ => {}
 }
 ```
 
-### 5. 组件上下文
+## API 参考
 
-`Context<V>` 提供：
+### Context 方法
 
-| 方法/字段 | 说明 |
-|-----------|------|
-| `cx.area` | 组件渲染区域 `Rect` |
-| `cx.app` | 应用上下文 `AppContext` |
-| `cx.subscribe(entity)` | 订阅实体变更 |
-| `cx.watch(entity, f)` | 订阅+读取一体化 |
-| `cx.spawn(f)` | 生成后台任务 |
-| `cx.spawn_task(f)` | 生成可取消任务，返回 `TaskHandle` |
+| 方法 | 说明 |
+|------|------|
+| `cx.watch(&entity, \|s\| ...)` | 订阅并读取状态 |
+| `cx.subscribe(&entity)` | 仅订阅状态变更 |
+| `cx.spawn(f)` | 启动后台任务（不可取消） |
+| `cx.spawn_task(f)` | 启动后台任务（返回 TaskHandle） |
 | `cx.notify()` | 手动触发重渲染 |
-| `cx.cast::<U>()` | 转换上下文类型 |
+| `cx.cast::<U>()` | 转换 Context 类型 |
+| `cx.app` | 访问 AppContext |
 
-## 📦 API 速览
+### Component 生命周期
+
+| 方法 | 调用时机 | 用途 |
+|------|---------|------|
+| `on_mount` | 首次挂载（仅一次） | 启动后台任务 |
+| `on_enter` | 每次进入视图 | 刷新数据 |
+| `on_exit` | 离开视图 | 暂停/取消任务 |
+| `on_shutdown` | 应用退出 | 持久化/清理 |
+| `render` | 每次重渲染 | 绘制 UI |
+| `handle_event` | 收到事件 | 处理输入 |
+
+### 完整导出
 
 ```rust
-// 核心导出
 pub use rat_nexus::{
     // 应用
     Application, AppContext, Context, EventContext,
@@ -295,7 +271,7 @@ pub use rat_nexus::{
     // 状态
     Entity, WeakEntity,
     // 路由
-    Router, Route, define_routes,
+    Router, define_routes,
     // 任务
     TaskHandle, TaskTracker,
     // 错误
@@ -303,15 +279,45 @@ pub use rat_nexus::{
 };
 ```
 
-## 🔧 与原 on_init 的区别
+## 运行示例
 
-| 旧 API | 新 API | 说明 |
-|--------|--------|------|
-| `on_init` (每次导航都调用) | `on_mount` (仅首次) | 防止任务重复 spawn |
-| 需要 `initialized` 标志 | 不需要 | 框架保证只调用一次 |
-| `cx.spawn` (无法取消) | `cx.spawn_task` → `TaskHandle` | 支持任务取消 |
-| 手动管理任务生命周期 | `TaskTracker` 自动管理 | Drop 时自动取消 |
+```bash
+# 运行 demo
+cargo run
 
-## ⚖️ 开源协议
+# 操作
+# ↑/↓/Enter - 导航菜单
+# j/k       - 增减计数器
+# w         - 启动异步任务
+# m         - 返回菜单
+# q         - 退出
+
+# 贪吃蛇
+# ←↑↓→/wasd - 移动
+# Space     - 暂停
+# r         - 重新开始
+```
+
+## 项目结构
+
+```
+.
+├── rat-nexus/              # 核心框架
+│   └── src/
+│       ├── application.rs  # Application, Context, AppContext
+│       ├── component/      # Component trait
+│       ├── state/          # Entity 响应式状态
+│       ├── router/         # Router, define_routes!
+│       ├── task.rs         # TaskHandle, TaskTracker
+│       └── lib.rs          # 公开 API
+│
+└── rat-demo/               # 示例应用
+    └── src/
+        ├── pages/          # 页面组件
+        ├── app.rs          # 根组件
+        └── main.rs         # 入口
+```
+
+## License
 
 MIT

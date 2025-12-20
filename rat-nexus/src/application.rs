@@ -87,25 +87,23 @@ impl AppContext {
 }
 
 /// A specialized context passed to component methods.
+/// Note: For rendering area, use `frame.area()` instead.
 pub struct Context<V: ?Sized + Send + Sync> {
     pub app: AppContext,
-    pub area: Rect,
     pub handle: Option<WeakEntity<V>>,
 }
 
 impl<V: ?Sized + Send + Sync> Context<V> {
-    pub fn new(app: AppContext, area: Rect) -> Self {
+    pub fn new(app: AppContext) -> Self {
         Self {
             app,
-            area,
             handle: None,
         }
     }
 
-    pub fn with_handle(app: AppContext, area: Rect, handle: WeakEntity<V>) -> Self {
+    pub fn with_handle(app: AppContext, handle: WeakEntity<V>) -> Self {
         Self {
             app,
-            area,
             handle: Some(handle),
         }
     }
@@ -174,7 +172,6 @@ impl<V: ?Sized + Send + Sync> Context<V> {
     pub fn cast<U: ?Sized + Send + Sync + 'static>(&self) -> Context<U> {
         Context {
             app: AppContext::clone(&self.app),
-            area: self.area,
             handle: None,
         }
     }
@@ -239,10 +236,8 @@ impl Application {
 
         // Lifecycle: Call on_mount (first time) and on_enter (entering view) on the root component
         {
-            let size = terminal.size()?;
-            let area = Rect::new(0, 0, size.width, size.height);
             let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during on_mount"))?;
-            let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app), area);
+            let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app));
             guard.on_mount_any(&mut cx);
             guard.on_enter_any(&mut cx);
         }
@@ -279,7 +274,7 @@ impl Application {
                 if event_tx.is_closed() {
                     break;
                 }
-                
+
                 // Lower poll duration for higher responsiveness
                 match event::poll(Duration::from_millis(20)) {
                     Ok(true) => {
@@ -312,10 +307,8 @@ impl Application {
                     };
 
                     if let Some(event) = internal_event {
-                        let size = terminal.size()?;
-                        let area = Rect::new(0, 0, size.width, size.height);
-                        let mut cx = EventContext::<dyn AnyComponent>::new(AppContext::clone(&app), area);
-                        
+                        let mut cx = EventContext::<dyn AnyComponent>::new(AppContext::clone(&app));
+
                         let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during event"))?;
                         let action = guard.handle_event_any(event, &mut cx);
                         app.refresh(); // Trigger refresh after any event handling
@@ -338,8 +331,7 @@ impl Application {
 
                     terminal.draw(|frame| {
                         app.frame_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let area = frame.area();
-                        let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app), area);
+                        let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app));
                         let mut guard = root.lock().expect("Root mutex poisoned during render");
                         guard.render_any(frame, &mut cx);
                     })?;
@@ -352,9 +344,9 @@ impl Application {
 struct DummyView;
 
 impl Component for DummyView {
-    fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
+    fn render(&mut self, frame: &mut ratatui::Frame, _cx: &mut Context<Self>) {
         let paragraph = ratatui::widgets::Paragraph::new("No component set")
             .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(paragraph, cx.area);
+        frame.render_widget(paragraph, frame.area());
     }
 }

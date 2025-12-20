@@ -141,7 +141,7 @@ impl Component for CounterPage {
         let local = self.local.read(|s| s.clone()).expect("failed to read local state");
 
         // Main Layout: Header, Main, Footer
-        let area = cx.area;
+        let area = frame.area();
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -343,8 +343,8 @@ impl Component for CounterPage {
         frame.render_widget(logs_list, right_chunks[0]);
 
         let inspect_text = vec![
-            format!("Area: {}x{}", cx.area.width, cx.area.height),
-            format!("Origin: {}, {}", cx.area.x, cx.area.y),
+            format!("Area: {}x{}", area.width, area.height),
+            format!("Origin: {}, {}", area.x, area.y),
             format!("Layout: {}", if local.layout_horizontal { "Horizontal" } else { "Vertical" }),
             format!("Entities: Subscribed to 2"),
         ];

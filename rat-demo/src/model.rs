@@ -15,7 +15,6 @@ pub struct LocalState {
     pub pulse_inc: u8, // Decay value for visual feedback
     pub pulse_dec: u8, // Decay value for visual feedback
     pub fps: f64,
-    pub frame_count: u64,
 }
 
 impl Default for LocalState {
@@ -30,7 +29,6 @@ impl Default for LocalState {
             pulse_inc: 0,
             pulse_dec: 0,
             fps: 0.0,
-            frame_count: 0,
         }
     }
 }

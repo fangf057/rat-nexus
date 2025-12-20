@@ -175,7 +175,7 @@ impl Component for SnakePage {
         cx.subscribe(&self.state);
         let state = self.state.read(|s| s.clone()).unwrap_or_default();
 
-        let area = cx.area;
+        let area = frame.area();
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
