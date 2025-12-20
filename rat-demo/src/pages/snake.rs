@@ -1,4 +1,4 @@
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext, TaskTracker};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment, Rect},
     widgets::{Block, Borders, Paragraph},
@@ -132,30 +132,26 @@ impl SnakeState {
 
 pub struct SnakePage {
     state: Entity<SnakeState>,
-    initialized: bool,
+    tasks: TaskTracker,
 }
 
 impl SnakePage {
     pub fn new(cx: &AppContext) -> Self {
         Self {
             state: cx.new_entity(SnakeState::default()),
-            initialized: false,
+            tasks: TaskTracker::new(),
         }
     }
 }
 
 impl Component for SnakePage {
-    fn on_init(&mut self, cx: &mut Context<Self>) {
-        if self.initialized {
-            return;
-        }
-        self.initialized = true;
-
+    fn on_mount(&mut self, cx: &mut Context<Self>) {
+        // on_mount is called once, no need for initialized flag
         let state = Entity::clone(&self.state);
         let app = AppContext::clone(&cx.app);
 
         // Game loop - tick every 100ms
-        cx.spawn(move |_| async move {
+        let handle = cx.spawn_task(move |_| async move {
             loop {
                 {
                     let changed = state.update(|s| s.tick()).unwrap_or(false);
@@ -166,11 +162,13 @@ impl Component for SnakePage {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         });
+        self.tasks.track(handle);
     }
 
     fn on_exit(&mut self, _cx: &mut Context<Self>) {
-        // Pause game when leaving
+        // Pause game and cancel tasks when leaving
         let _ = self.state.update(|s| s.paused = true);
+        self.tasks.abort_all();
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {

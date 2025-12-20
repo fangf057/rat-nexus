@@ -1,4 +1,4 @@
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext, TaskTracker};
 use crate::model::{AppState, LocalState};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment},
@@ -13,6 +13,8 @@ pub struct CounterPage {
     title: &'static str,
     state: Entity<AppState>,
     local: Entity<LocalState>,
+    // Task management
+    tasks: TaskTracker,
     // Transient tracking state that doesn't trigger reactivity
     last_fps_update: std::time::Instant,
     last_frame_count: u64,
@@ -20,10 +22,11 @@ pub struct CounterPage {
 
 impl CounterPage {
     pub fn new(title: &'static str, state: Entity<AppState>, local: Entity<LocalState>) -> Self {
-        Self { 
-            title, 
-            state, 
+        Self {
+            title,
+            state,
             local,
+            tasks: TaskTracker::new(),
             last_fps_update: std::time::Instant::now(),
             last_frame_count: 0,
         }
@@ -40,12 +43,12 @@ impl CounterPage {
 }
 
 impl Component for CounterPage {
-    fn on_init(&mut self, cx: &mut Context<Self>) {
+    fn on_mount(&mut self, cx: &mut Context<Self>) {
         let local = Entity::clone(&self.local);
         let app = AppContext::clone(&cx.app);
 
-        // Task 1: Clock
-        cx.spawn(move |_| async move {
+        // Task 1: Clock - use spawn_task for cancellable tasks
+        let handle1 = cx.spawn_task(move |_| async move {
             loop {
                 let now = chrono::Local::now().format("%H:%M:%S").to_string();
                 let _ = local.update(|s| s.current_time = now);
@@ -53,11 +56,12 @@ impl Component for CounterPage {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         });
+        self.tasks.track(handle1);
 
         // Task 2: Mock System Load
         let local_val = Entity::clone(&self.local);
         let app2 = AppContext::clone(&cx.app);
-        cx.spawn(move |_| async move {
+        let handle2 = cx.spawn_task(move |_| async move {
             use rand::Rng;
             loop {
                 {
@@ -71,11 +75,12 @@ impl Component for CounterPage {
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             }
         });
+        self.tasks.track(handle2);
 
         // Task 3: Pulse Decay (Reactive only)
         let local_pulse = Entity::clone(&self.local);
         let app3 = AppContext::clone(&cx.app);
-        cx.spawn(move |_| async move {
+        let handle3 = cx.spawn_task(move |_| async move {
             loop {
                 let mut changed = false;
                 let _ = local_pulse.update(|s| {
@@ -88,21 +93,23 @@ impl Component for CounterPage {
                         changed = true;
                     }
                 });
-                
+
                 // ONLY refresh if we actually have a pulse to decay.
                 // This stops the "infinite 600fps" loop when the UI is idle.
                 if changed {
                     app3.refresh();
                 }
-                
+
                 tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
             }
         });
-
+        self.tasks.track(handle3);
     }
 
     fn on_exit(&mut self, _cx: &mut Context<Self>) {
         self.log("Lifecycle: on_exit called (Leaving Page)".to_string());
+        // Cancel all background tasks when leaving
+        self.tasks.abort_all();
     }
 
     fn on_shutdown(&mut self, _cx: &mut Context<Self>) {

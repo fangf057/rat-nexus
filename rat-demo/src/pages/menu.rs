@@ -25,8 +25,12 @@ impl Menu {
 }
 
 impl Component for Menu {
-    fn on_init(&mut self, _cx: &mut Context<Self>) {
-        // Menu initialized
+    fn on_mount(&mut self, _cx: &mut Context<Self>) {
+        // Menu initialized (called once)
+    }
+
+    fn on_enter(&mut self, _cx: &mut Context<Self>) {
+        // Menu entered (called each navigation)
     }
 
     fn on_exit(&mut self, _cx: &mut Context<Self>) {

@@ -2,6 +2,7 @@ pub mod application;
 pub mod component;
 pub mod state;
 pub mod router;
+pub mod task;
 pub mod error;
 
 pub use error::{Error, Result};
@@ -10,4 +11,5 @@ pub use error::{Error, Result};
 pub use application::{Application, AppContext, Context, EventContext};
 pub use component::{Component, traits::{Event, Action, AnyComponent}};
 pub use state::{Entity, WeakEntity};
-pub use router::traits::{Route, Router};
+pub use router::{Route, Router};
+pub use task::{TaskHandle, TaskTracker};

@@ -42,22 +42,33 @@ impl Root {
 }
 
 impl Component for Root {
-    fn on_init(&mut self, cx: &mut Context<Self>) {
+    fn on_mount(&mut self, cx: &mut Context<Self>) {
+        // Mount all child components once at startup
         {
             let mut cx = cx.cast::<Menu>();
-            self.menu.on_init(&mut cx);
+            self.menu.on_mount(&mut cx);
         }
         {
             let mut cx = cx.cast::<CounterPage>();
-            self.page_a.on_init(&mut cx);
+            self.page_a.on_mount(&mut cx);
         }
         {
             let mut cx = cx.cast::<CounterPage>();
-            self.page_b.on_init(&mut cx);
+            self.page_b.on_mount(&mut cx);
         }
         {
             let mut cx = cx.cast::<SnakePage>();
-            self.snake.on_init(&mut cx);
+            self.snake.on_mount(&mut cx);
+        }
+    }
+
+    fn on_enter(&mut self, cx: &mut Context<Self>) {
+        // Enter the current page
+        match self.current.as_str() {
+            "page_a" => self.page_a.on_enter(&mut cx.cast()),
+            "page_b" => self.page_b.on_enter(&mut cx.cast()),
+            "snake" => self.snake.on_enter(&mut cx.cast()),
+            _ => self.menu.on_enter(&mut cx.cast()),
         }
     }
 
@@ -115,12 +126,12 @@ impl Component for Root {
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     self.navigate(route);
-                    // Lifecycle: Call on_init for new page (optional, but consistent)
+                    // Lifecycle: Call on_enter for new page (not on_mount - already mounted)
                     match self.current.as_str() {
-                        "page_a" => self.page_a.on_init(&mut cx.cast()),
-                        "page_b" => self.page_b.on_init(&mut cx.cast()),
-                        "snake" => self.snake.on_init(&mut cx.cast()),
-                        _ => self.menu.on_init(&mut cx.cast()),
+                        "page_a" => self.page_a.on_enter(&mut cx.cast()),
+                        "page_b" => self.page_b.on_enter(&mut cx.cast()),
+                        "snake" => self.snake.on_enter(&mut cx.cast()),
+                        _ => self.menu.on_enter(&mut cx.cast()),
                     }
                     None
                 }
@@ -133,12 +144,12 @@ impl Component for Root {
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     if self.go_back() {
-                        // Lifecycle: Call on_init
+                        // Lifecycle: Call on_enter (not on_mount)
                         match self.current.as_str() {
-                            "page_a" => self.page_a.on_init(&mut cx.cast()),
-                            "page_b" => self.page_b.on_init(&mut cx.cast()),
-                            "snake" => self.snake.on_init(&mut cx.cast()),
-                            _ => self.menu.on_init(&mut cx.cast()),
+                            "page_a" => self.page_a.on_enter(&mut cx.cast()),
+                            "page_b" => self.page_b.on_enter(&mut cx.cast()),
+                            "snake" => self.snake.on_enter(&mut cx.cast()),
+                            _ => self.menu.on_enter(&mut cx.cast()),
                         }
                     }
                     None

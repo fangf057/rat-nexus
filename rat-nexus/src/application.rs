@@ -54,6 +54,19 @@ impl AppContext {
         });
     }
 
+    /// Spawn a task and return a handle that can be used to cancel it.
+    pub fn spawn_task<F, Fut>(&self, f: F) -> crate::task::TaskHandle
+    where
+        F: FnOnce(AppContext) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let cx = AppContext::clone(self);
+        let join_handle = tokio::spawn(async move {
+            f(cx).await;
+        });
+        crate::task::TaskHandle::new(join_handle.abort_handle())
+    }
+
     /// Set the root component of the application.
     pub fn set_root(&self, root: Arc<Mutex<dyn AnyComponent>>) -> crate::Result<()> {
         let mut guard = self.root.lock().map_err(|_| crate::Error::LockPoisoned)?;
@@ -103,7 +116,7 @@ impl<V: ?Sized + Send + Sync> Context<V> {
     }
 
     /// Subscribe to an entity's changes.
-    pub fn subscribe<T>(&mut self, entity: &Entity<T>) 
+    pub fn subscribe<T>(&mut self, entity: &Entity<T>)
     where T: Send + Sync + 'static
     {
         let mut rx = entity.subscribe();
@@ -115,6 +128,29 @@ impl<V: ?Sized + Send + Sync> Context<V> {
         });
     }
 
+    /// Watch an entity: subscribe to changes and read the current value.
+    /// This is a convenience method that combines `subscribe` and `entity.read`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn render(&mut self, frame: &mut Frame, cx: &mut Context<Self>) {
+    ///     // Instead of:
+    ///     // cx.subscribe(&self.state);
+    ///     // let counter = self.state.read(|s| s.counter).unwrap();
+    ///
+    ///     // Use:
+    ///     let counter = cx.watch(&self.state, |s| s.counter).unwrap();
+    /// }
+    /// ```
+    pub fn watch<T, F, R>(&mut self, entity: &Entity<T>, f: F) -> Option<R>
+    where
+        T: Send + Sync + 'static,
+        F: FnOnce(&T) -> R,
+    {
+        self.subscribe(entity);
+        entity.read(f).ok()
+    }
+
     /// Spawn a task using the application context.
     pub fn spawn<F, Fut>(&self, f: F)
     where
@@ -122,6 +158,16 @@ impl<V: ?Sized + Send + Sync> Context<V> {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         self.app.spawn(f);
+    }
+
+    /// Spawn a task and return a handle that can be used to cancel it.
+    /// Use this with `TaskTracker` for proper lifecycle management.
+    pub fn spawn_task<F, Fut>(&self, f: F) -> crate::task::TaskHandle
+    where
+        F: FnOnce(AppContext) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.app.spawn_task(f)
     }
 
     /// Cast this context to another view type.
@@ -191,13 +237,14 @@ impl Application {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Lifecycle: Call on_init on the root component
+        // Lifecycle: Call on_mount (first time) and on_enter (entering view) on the root component
         {
             let size = terminal.size()?;
             let area = Rect::new(0, 0, size.width, size.height);
-            let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during on_init"))?;
+            let mut guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned during on_mount"))?;
             let mut cx = Context::<dyn AnyComponent>::new(AppContext::clone(&app), area);
-            guard.on_init_any(&mut cx);
+            guard.on_mount_any(&mut cx);
+            guard.on_enter_any(&mut cx);
         }
 
         let result = self.run_app_loop(app, &mut terminal, root, re_render_rx).await;

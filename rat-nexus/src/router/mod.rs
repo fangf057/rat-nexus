@@ -1,7 +1,7 @@
 //! Router module.
 //!
-//! Defines the `Router` trait and basic implementations.
+//! Provides navigation management with `Router` struct and `define_routes!` macro.
 
 pub mod traits;
 
-// pub use traits::Router;
+pub use traits::{Route, Router};

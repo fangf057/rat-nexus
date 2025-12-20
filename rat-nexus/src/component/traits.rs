@@ -14,9 +14,9 @@ pub enum Event {
 }
 
 /// Action that a component can return after handling an event.
-#[derive(Debug)]
-pub enum Action {
-    Navigate(String), // route
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action<R = String> {
+    Navigate(R),
     Back,
     Quit,
     Noop,
@@ -24,17 +24,26 @@ pub enum Action {
 
 /// The core Component trait for implementers.
 pub trait Component: Send + Sync + 'static {
-    /// Called once when the component is first initialized or set as root.
-    fn on_init(&mut self, cx: &mut Context<Self>) {
+    /// Called once when the component is first mounted (created and added to the tree).
+    /// Use this for one-time initialization like spawning background tasks.
+    fn on_mount(&mut self, cx: &mut Context<Self>) {
         let _ = cx;
     }
 
-    /// Called when the component is removed from the active view (e.g. navigation).
+    /// Called each time the component becomes the active view (navigation entry).
+    /// Use this for per-visit initialization like resetting transient state.
+    fn on_enter(&mut self, cx: &mut Context<Self>) {
+        let _ = cx;
+    }
+
+    /// Called when the component is removed from the active view (e.g. navigation away).
+    /// Use this for cleanup like pausing background tasks.
     fn on_exit(&mut self, cx: &mut Context<Self>) {
         let _ = cx;
     }
 
     /// Called when the application is about to shut down.
+    /// Use this for final cleanup before the app terminates.
     fn on_shutdown(&mut self, cx: &mut Context<Self>) {
         let _ = cx;
     }
@@ -52,7 +61,8 @@ pub trait Component: Send + Sync + 'static {
 
 /// A dyn-compatible version of the Component trait.
 pub trait AnyComponent: Any + Send + Sync + 'static {
-    fn on_init_any(&mut self, cx: &mut Context<dyn AnyComponent>);
+    fn on_mount_any(&mut self, cx: &mut Context<dyn AnyComponent>);
+    fn on_enter_any(&mut self, cx: &mut Context<dyn AnyComponent>);
     fn on_exit_any(&mut self, cx: &mut Context<dyn AnyComponent>);
     fn on_shutdown_any(&mut self, cx: &mut Context<dyn AnyComponent>);
     fn render_any(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<dyn AnyComponent>);
@@ -60,9 +70,14 @@ pub trait AnyComponent: Any + Send + Sync + 'static {
 }
 
 impl<T: Component> AnyComponent for T {
-    fn on_init_any(&mut self, cx: &mut Context<dyn AnyComponent>) {
+    fn on_mount_any(&mut self, cx: &mut Context<dyn AnyComponent>) {
         let mut cx = cx.cast::<Self>();
-        self.on_init(&mut cx);
+        self.on_mount(&mut cx);
+    }
+
+    fn on_enter_any(&mut self, cx: &mut Context<dyn AnyComponent>) {
+        let mut cx = cx.cast::<Self>();
+        self.on_enter(&mut cx);
     }
 
     fn on_exit_any(&mut self, cx: &mut Context<dyn AnyComponent>) {
