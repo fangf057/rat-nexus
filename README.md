@@ -72,7 +72,7 @@ impl Component for Counter {
             Constraint::Length(30),
             Constraint::Fill(1),
         ])
-        .split(area)[1];
+        .split(frame.area())[1];
 
         frame.render_widget(
             Paragraph::new(format!("Count: {count}"))
