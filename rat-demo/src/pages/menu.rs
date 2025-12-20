@@ -16,6 +16,7 @@ impl Menu {
             options: vec![
                 ("Counter Page A", "page_a".to_string()),
                 ("Counter Page B", "page_b".to_string()),
+                ("Snake Game 🐍", "snake".to_string()),
                 ("Exit", "exit".to_string()),
             ],
             state,

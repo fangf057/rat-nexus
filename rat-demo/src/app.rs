@@ -1,6 +1,6 @@
 use rat_nexus::{Component, Context, EventContext, Event, Action, Route, Entity, AppContext};
 use crate::model::{AppState, LocalState};
-use crate::pages::{Menu, CounterPage};
+use crate::pages::{Menu, CounterPage, SnakePage};
 
 // A simple root component that switches between menu and pages
 pub struct Root {
@@ -9,6 +9,7 @@ pub struct Root {
     menu: Menu,
     page_a: CounterPage,
     page_b: CounterPage,
+    snake: SnakePage,
 }
 
 impl Root {
@@ -19,6 +20,7 @@ impl Root {
             menu: Menu::new(shared_state.clone()),
             page_a: CounterPage::new("Page A", shared_state.clone(), cx.new_entity(LocalState::default())),
             page_b: CounterPage::new("Page B", shared_state, cx.new_entity(LocalState::default())),
+            snake: SnakePage::new(cx),
         }
     }
 
@@ -53,6 +55,10 @@ impl Component for Root {
             let mut cx = cx.cast::<CounterPage>();
             self.page_b.on_init(&mut cx);
         }
+        {
+            let mut cx = cx.cast::<SnakePage>();
+            self.snake.on_init(&mut cx);
+        }
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
@@ -65,6 +71,10 @@ impl Component for Root {
             "page_b" => {
                 let mut cx = cx.cast::<CounterPage>();
                 self.page_b.render(frame, &mut cx);
+            }
+            "snake" => {
+                let mut cx = cx.cast::<SnakePage>();
+                self.snake.render(frame, &mut cx);
             }
             _ => {
                 let mut cx = cx.cast::<Menu>();
@@ -84,6 +94,10 @@ impl Component for Root {
                 let mut cx = cx.cast::<CounterPage>();
                 self.page_b.handle_event(event, &mut cx)
             }
+            "snake" => {
+                let mut cx = cx.cast::<SnakePage>();
+                self.snake.handle_event(event, &mut cx)
+            }
             _ => {
                 let mut cx = cx.cast::<Menu>();
                 self.menu.handle_event(event, &mut cx)
@@ -97,6 +111,7 @@ impl Component for Root {
                     match current.as_str() {
                         "page_a" => self.page_a.on_exit(&mut cx.cast()),
                         "page_b" => self.page_b.on_exit(&mut cx.cast()),
+                        "snake" => self.snake.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     self.navigate(route);
@@ -104,6 +119,7 @@ impl Component for Root {
                     match self.current.as_str() {
                         "page_a" => self.page_a.on_init(&mut cx.cast()),
                         "page_b" => self.page_b.on_init(&mut cx.cast()),
+                        "snake" => self.snake.on_init(&mut cx.cast()),
                         _ => self.menu.on_init(&mut cx.cast()),
                     }
                     None
@@ -113,6 +129,7 @@ impl Component for Root {
                     match current.as_str() {
                         "page_a" => self.page_a.on_exit(&mut cx.cast()),
                         "page_b" => self.page_b.on_exit(&mut cx.cast()),
+                        "snake" => self.snake.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     if self.go_back() {
@@ -120,6 +137,7 @@ impl Component for Root {
                         match self.current.as_str() {
                             "page_a" => self.page_a.on_init(&mut cx.cast()),
                             "page_b" => self.page_b.on_init(&mut cx.cast()),
+                            "snake" => self.snake.on_init(&mut cx.cast()),
                             _ => self.menu.on_init(&mut cx.cast()),
                         }
                     }

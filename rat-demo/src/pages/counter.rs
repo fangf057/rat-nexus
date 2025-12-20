@@ -43,9 +43,9 @@ impl Component for CounterPage {
     fn on_init(&mut self, cx: &mut Context<Self>) {
         let local = Entity::clone(&self.local);
         let app = AppContext::clone(&cx.app);
-        
+
         // Task 1: Clock
-        cx.app.spawn(move |_| async move {
+        cx.spawn(move |_| async move {
             loop {
                 let now = chrono::Local::now().format("%H:%M:%S").to_string();
                 let _ = local.update(|s| s.current_time = now);
@@ -57,7 +57,7 @@ impl Component for CounterPage {
         // Task 2: Mock System Load
         let local_val = Entity::clone(&self.local);
         let app2 = AppContext::clone(&cx.app);
-        cx.app.spawn(move |_| async move {
+        cx.spawn(move |_| async move {
             use rand::Rng;
             loop {
                 {
@@ -75,7 +75,7 @@ impl Component for CounterPage {
         // Task 3: Pulse Decay (Reactive only)
         let local_pulse = Entity::clone(&self.local);
         let app3 = AppContext::clone(&cx.app);
-        cx.app.spawn(move |_| async move {
+        cx.spawn(move |_| async move {
             loop {
                 let mut changed = false;
                 let _ = local_pulse.update(|s| {
