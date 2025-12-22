@@ -124,9 +124,12 @@ macro_rules! define_routes {
 /// This macro generates a Root component that automatically handles:
 /// - RootRoute enum definition
 /// - Root struct with router and all page fields
-/// - Root::new(cx) with automatic page construction via Page::build()
+/// - Root::new(cx) with automatic page construction via Default trait
 /// - Complete Component implementation with routing and lifecycle dispatch
 /// - Navigation action handling
+///
+/// All components are created with Default::default() and can be customized
+/// in their on_mount() lifecycle method.
 ///
 /// Minimal syntax - just list the routes and page types!
 ///
@@ -144,11 +147,11 @@ macro_rules! define_routes {
 /// // Automatically creates:
 /// // - `enum RootRoute { Menu, Monitor, Timer }`
 /// // - `pub struct Root { router, menu, monitor, timer }`
-/// // - `impl Root { fn new(cx: &AppContext) -> Self }`
+/// // - `impl Root { fn new() -> Self }`
 /// // - `impl Component for Root` with full routing
 ///
 /// // In main.rs:
-/// // let root = Root::new(cx);
+/// // let root = Root::new();
 /// ```
 #[macro_export]
 macro_rules! define_app {
@@ -225,11 +228,12 @@ macro_rules! define_app {
 
             impl Root {
                 /// Create a new Root instance.
-                /// All pages are constructed via `Page::build(cx)`.
-                pub fn new(cx: &$crate::AppContext) -> Self {
+                /// All pages are constructed using Default::default().
+                /// Customize components in their on_mount() lifecycle method.
+                pub fn new() -> Self {
                     Self {
                         router: $crate::Router::new(RootRoute::default()),
-                        $($field: <$page as $crate::Page>::build(cx)),*
+                        $($field: <$page>::default()),*
                     }
                 }
 

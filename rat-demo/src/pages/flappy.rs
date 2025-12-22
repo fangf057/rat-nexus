@@ -1,7 +1,7 @@
 //! Flappy Bird - Classic arcade game clone
 //! Showcases: Real-time game loop, collision detection, Entity state, Componentization
 
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, TaskTracker, Page, AppContext};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, TaskTracker};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment},
     widgets::{Block, Borders, Paragraph, BorderType, canvas::{Canvas, Rectangle, Points, Context as CanvasContext}},
@@ -232,18 +232,15 @@ impl FlappyState {
     }
 }
 
-// ============================================
-// Flappy Page
-// ============================================
 pub struct FlappyPage {
-    state: Entity<FlappyState>,
+    state: Option<Entity<FlappyState>>,
     tasks: TaskTracker,
 }
 
-impl Page for FlappyPage {
-    fn build(cx: &AppContext) -> Self {
+impl Default for FlappyPage {
+    fn default() -> Self {
         Self {
-            state: cx.new_entity(FlappyState::default()),
+            state: None,
             tasks: TaskTracker::new(),
         }
     }
@@ -251,7 +248,9 @@ impl Page for FlappyPage {
 
 impl Component for FlappyPage {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        let state = Entity::clone(&self.state);
+        // Initialize state entity
+        let state = cx.new_entity(FlappyState::default());
+        self.state = Some(Entity::clone(&state));
 
         let handle = cx.spawn_detached_task(move |app| async move {
             use rand::Rng;
@@ -304,8 +303,9 @@ impl Component for FlappyPage {
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        cx.subscribe(&self.state);
-        let state = self.state.read(|s| s.clone()).unwrap_or_default();
+        if let Some(state) = &self.state {
+            cx.subscribe(state);
+            let state_data = state.read(|s| s.clone()).unwrap_or_default();
         let area = frame.area();
 
         let layout = Layout::default()
@@ -314,18 +314,18 @@ impl Component for FlappyPage {
             .split(area);
 
         // Header
-        let status = if !state.bird.alive { "GAME OVER" } else if !state.started { "READY" } else { "FLYING" };
-        let header_color = if !state.bird.alive { Color::Red } else { Color::Yellow };
-        let header = Paragraph::new(format!(" Score: {}  |  Best: {}  |  {} ", state.score, state.high_score, status))
+        let status = if !state_data.bird.alive { "GAME OVER" } else if !state_data.started { "READY" } else { "FLYING" };
+        let header_color = if !state_data.bird.alive { Color::Red } else { Color::Yellow };
+        let header = Paragraph::new(format!(" Score: {}  |  Best: {}  |  {} ", state_data.score, state_data.high_score, status))
             .style(Style::default().fg(header_color).add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
         frame.render_widget(header, layout[0]);
 
         // Game canvas
-        let bird = state.bird.clone();
-        let pipes = state.pipes.clone();
-        let started = state.started;
+        let bird = state_data.bird.clone();
+        let pipes = state_data.pipes.clone();
+        let started = state_data.started;
 
         let canvas = Canvas::default()
             .block(Block::default()
@@ -363,24 +363,26 @@ impl Component for FlappyPage {
         frame.render_widget(canvas, layout[1]);
 
         // Footer
-        let footer_color = if !state.bird.alive { Color::Red } else { Color::Yellow };
+        let footer_color = if !state_data.bird.alive { Color::Red } else { Color::Yellow };
         let footer = Paragraph::new(" SPACE Flap | R Reset | M Menu | Q Quit ")
             .style(Style::default().bg(footer_color).fg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(footer, layout[2]);
+        }
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
+        if let Some(state) = &self.state {
         match event {
             Event::Key(key) => match key.code {
                 KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char('m') | KeyCode::Esc => Some(Action::Navigate("menu".to_string())),
                 KeyCode::Char('r') => {
-                    let _ = self.state.update(|s| s.reset());
+                    let _ = state.update(|s| s.reset());
                     None
                 }
                 KeyCode::Char(' ') | KeyCode::Up => {
-                    let _ = self.state.update(|s| {
+                    let _ = state.update(|s| {
                         if !s.bird.alive {
                             s.reset();
                         }
@@ -394,6 +396,9 @@ impl Component for FlappyPage {
                 _ => None,
             },
             _ => None,
+        }
+        } else {
+            None
         }
     }
 }

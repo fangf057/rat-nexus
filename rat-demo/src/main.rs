@@ -11,7 +11,7 @@ fn main() -> anyhow::Result<()> {
     let app = Application::new();
 
     app.run(move |cx| {
-        cx.set_root(Root::new(cx))?;
+        cx.set_root(Root::new())?;
         Ok(())
     })
 }

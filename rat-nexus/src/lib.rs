@@ -9,7 +9,7 @@ pub use error::{Error, Result};
 
 // Re-export common types for convenience
 pub use application::{Application, AppContext, Context, EventContext};
-pub use component::{Component, traits::{Event, Action, AnyComponent, Page}};
+pub use component::{Component, traits::{Event, Action, AnyComponent}};
 pub use state::{Entity, WeakEntity, EntityId};
 pub use router::{Route, Router};
 pub use task::{TaskHandle, TaskTracker};

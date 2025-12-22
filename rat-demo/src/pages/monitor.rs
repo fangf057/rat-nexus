@@ -7,7 +7,7 @@
 //! - Table with dynamic data
 //! - Complex layout composition
 
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, AppContext, TaskTracker, Page};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, TaskTracker};
 use crate::model::{AppState, MonitorState};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment, Rect},
@@ -22,18 +22,16 @@ use ratatui::{
 use crossterm::event::KeyCode;
 
 pub struct MonitorPage {
-    app_state: Entity<AppState>,
-    state: Entity<MonitorState>,
+    app_state: Option<Entity<AppState>>,
+    state: Option<Entity<MonitorState>>,
     tasks: TaskTracker,
 }
 
-impl Page for MonitorPage {
-    fn build(cx: &AppContext) -> Self {
-        // Get shared state from context
-        let app_state = cx.get::<Entity<AppState>>().expect("AppState not set in context");
+impl Default for MonitorPage {
+    fn default() -> Self {
         Self {
-            app_state,
-            state: cx.new_entity(MonitorState::default()),
+            app_state: None,
+            state: None,
             tasks: TaskTracker::new(),
         }
     }
@@ -41,9 +39,17 @@ impl Page for MonitorPage {
 
 impl Component for MonitorPage {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        // Spawn data simulation task
-        let state = Entity::clone(&self.state);
+        // Get or initialize shared AppState
+        let app_state = cx.get_or_insert_with::<Entity<AppState>, _>(|| {
+            cx.new_entity(AppState::default())
+        }).expect("Failed to initialize AppState");
+        self.app_state = Some(app_state);
 
+        // Initialize MonitorState
+        let state = cx.new_entity(MonitorState::default());
+        self.state = Some(Entity::clone(&state));
+
+        // Spawn data simulation task
         let handle = cx.spawn_detached_task(move |app| async move {
             use rand::Rng;
             use rand::SeedableRng;
@@ -100,12 +106,13 @@ impl Component for MonitorPage {
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        cx.subscribe(&self.state);
-        cx.subscribe(&self.app_state);
+        if let (Some(state), Some(app_state)) = (&self.state, &self.app_state) {
+            cx.subscribe(state);
+            cx.subscribe(app_state);
 
-        let state = self.state.read(|s| s.clone()).unwrap_or_default();
-        let app = self.app_state.read(|s| s.clone()).unwrap_or_default();
-        let theme_color = app.theme.color();
+            let state_data = state.read(|s| s.clone()).unwrap_or_default();
+            let app = app_state.read(|s| s.clone()).unwrap_or_default();
+            let theme_color = app.theme.color();
 
         let area = frame.area();
 
@@ -120,7 +127,7 @@ impl Component for MonitorPage {
             .split(area);
 
         // Header with system info
-        let uptime_str = format_uptime(state.uptime_secs);
+        let uptime_str = format_uptime(state_data.uptime_secs);
         let header_text = format!(
             " 📊 System Monitor │ Uptime: {} │ Theme: {} ",
             uptime_str,
@@ -142,30 +149,32 @@ impl Component for MonitorPage {
             .split(main_layout[1]);
 
         // Left side: Charts
-        self.render_charts(frame, body_layout[0], &state, theme_color);
+        self.render_charts(frame, body_layout[0], &state_data, theme_color);
 
         // Right side: Metrics and processes
-        self.render_sidebar(frame, body_layout[1], &state, theme_color);
+        self.render_sidebar(frame, body_layout[1], &state_data, theme_color);
 
         // Footer
         let footer = Paragraph::new(" R Reset │ T Theme │ M Menu │ Q Quit │ Mouse: Scroll to adjust ")
             .style(Style::default().bg(theme_color).fg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(footer, main_layout[2]);
+        }
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
+        if let (Some(state), Some(app_state)) = (&self.state, &self.app_state) {
         match event {
             Event::Key(key) => match key.code {
                 KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char('m') | KeyCode::Esc => Some(Action::Navigate("menu".to_string())),
                 KeyCode::Char('t') => {
-                    let _ = self.app_state.update(|s| s.theme = s.theme.next());
+                    let _ = app_state.update(|s| s.theme = s.theme.next());
                     None
                 }
                 KeyCode::Char('r') => {
                     // Reset all metrics
-                    let _ = self.state.update(|s| {
+                    let _ = state.update(|s| {
                         s.cpu_history = vec![50; 60];
                         s.memory_history = vec![50; 60];
                         s.network_in = vec![50; 30];
@@ -181,26 +190,26 @@ impl Component for MonitorPage {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => {
                         // Increase disk usage on scroll up
-                        let _ = self.state.update(|s| {
+                        let _ = state.update(|s| {
                             s.disk_usage = (s.disk_usage + 5).min(100);
                         });
                         None
                     }
                     MouseEventKind::ScrollDown => {
                         // Decrease disk usage on scroll down
-                        let _ = self.state.update(|s| {
+                        let _ = state.update(|s| {
                             s.disk_usage = s.disk_usage.saturating_sub(5);
                         });
                         None
                     }
                     MouseEventKind::Down(MouseButton::Left) => {
                         // Left click cycles theme
-                        let _ = self.app_state.update(|s| s.theme = s.theme.next());
+                        let _ = app_state.update(|s| s.theme = s.theme.next());
                         None
                     }
                     MouseEventKind::Down(MouseButton::Right) => {
                         // Right click resets
-                        let _ = self.state.update(|s| {
+                        let _ = state.update(|s| {
                             s.uptime_secs = 0;
                         });
                         None
@@ -209,6 +218,9 @@ impl Component for MonitorPage {
                 }
             }
             _ => None,
+        }
+        } else {
+            None
         }
     }
 }

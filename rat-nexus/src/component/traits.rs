@@ -100,32 +100,3 @@ impl<T: Component> AnyComponent for T {
         self.handle_event(event, &mut cx)
     }
 }
-
-/// A page that can be automatically constructed by the routing system.
-/// Implement this trait to enable automatic page creation in `define_app!`.
-///
-/// Pages can access shared application state via `cx.get::<T>()`.
-///
-/// # Example
-/// ```ignore
-/// use rat_nexus::{Page, Component, AppContext, Entity};
-///
-/// pub struct MyPage {
-///     state: Entity<MyState>,
-/// }
-///
-/// impl Page for MyPage {
-///     fn build(cx: &AppContext) -> Self {
-///         // Get shared state from context (set during app initialization)
-///         let shared = cx.get::<Entity<SharedState>>().unwrap();
-///         Self {
-///             state: cx.new_entity(MyState::new(shared)),
-///         }
-///     }
-/// }
-/// ```
-pub trait Page: Component {
-    /// Build a new page instance with access to the application context.
-    /// Use `cx.get::<T>()` to access shared state stored during app setup.
-    fn build(cx: &crate::AppContext) -> Self;
-}

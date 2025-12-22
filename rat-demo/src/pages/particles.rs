@@ -1,7 +1,7 @@
 //! Particles Demo - Animated particle system
 //! Showcases: spawn_task, Entity updates, real-time animation, TaskTracker
 
-use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, TaskTracker, Page, AppContext};
+use rat_nexus::{Component, Context, EventContext, Event, Action, Entity, TaskTracker};
 use ratatui::{
     layout::{Layout, Constraint, Direction, Alignment},
     widgets::{Block, Borders, Paragraph, BorderType, canvas::{Canvas, Points}},
@@ -29,14 +29,14 @@ pub struct ParticlesState {
 }
 
 pub struct ParticlesPage {
-    state: Entity<ParticlesState>,
+    state: Option<Entity<ParticlesState>>,
     tasks: TaskTracker,
 }
 
-impl Page for ParticlesPage {
-    fn build(cx: &AppContext) -> Self {
+impl Default for ParticlesPage {
+    fn default() -> Self {
         Self {
-            state: cx.new_entity(ParticlesState { spawn_x: 50.0, spawn_y: 25.0, ..Default::default() }),
+            state: None,
             tasks: TaskTracker::new(),
         }
     }
@@ -44,7 +44,9 @@ impl Page for ParticlesPage {
 
 impl Component for ParticlesPage {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        let state = Entity::clone(&self.state);
+        // Initialize state entity
+        let state = cx.new_entity(ParticlesState { spawn_x: 50.0, spawn_y: 25.0, ..Default::default() });
+        self.state = Some(Entity::clone(&state));
 
         // Particle physics update loop
         let handle = cx.spawn_detached_task(move |app| async move {
@@ -101,8 +103,9 @@ impl Component for ParticlesPage {
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        cx.subscribe(&self.state);
-        let state = self.state.read(|s| s.clone()).unwrap_or_default();
+        if let Some(state) = &self.state {
+            cx.subscribe(state);
+            let state_data = state.read(|s| s.clone()).unwrap_or_default();
         let area = frame.area();
 
         let layout = Layout::default()
@@ -111,10 +114,10 @@ impl Component for ParticlesPage {
             .split(area);
 
         // Header
-        let status = if state.paused { "PAUSED" } else { "RUNNING" };
+        let status = if state_data.paused { "PAUSED" } else { "RUNNING" };
         let header = Paragraph::new(format!(
             " Particles: {}  |  Spawned: {}  |  {} ",
-            state.particles.len(), state.total_spawned, status
+            state_data.particles.len(), state_data.total_spawned, status
         ))
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Center)
@@ -123,7 +126,7 @@ impl Component for ParticlesPage {
 
         // Canvas
         let canvas_area = layout[1];
-        let particles_data: Vec<_> = state.particles.iter()
+        let particles_data: Vec<_> = state_data.particles.iter()
             .map(|p| (p.x, p.y, p.color))
             .collect();
 
@@ -146,24 +149,26 @@ impl Component for ParticlesPage {
         frame.render_widget(canvas, canvas_area);
 
         // Footer
-        let color = if state.paused { Color::Yellow } else { Color::Magenta };
+        let color = if state_data.paused { Color::Yellow } else { Color::Magenta };
         let footer = Paragraph::new(" SPACE Pause | Arrow Keys Move | R Reset | M Menu | Q Quit ")
             .style(Style::default().bg(color).fg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(footer, layout[2]);
+        }
     }
 
     fn handle_event(&mut self, event: Event, _cx: &mut EventContext<Self>) -> Option<Action> {
+        if let Some(state) = &self.state {
         match event {
             Event::Key(key) => match key.code {
                 KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char('m') | KeyCode::Esc => Some(Action::Navigate("menu".to_string())),
                 KeyCode::Char(' ') => {
-                    let _ = self.state.update(|s| s.paused = !s.paused);
+                    let _ = state.update(|s| s.paused = !s.paused);
                     None
                 }
                 KeyCode::Char('r') => {
-                    let _ = self.state.update(|s| {
+                    let _ = state.update(|s| {
                         s.particles.clear();
                         s.total_spawned = 0;
                         s.spawn_x = 50.0;
@@ -172,24 +177,27 @@ impl Component for ParticlesPage {
                     None
                 }
                 KeyCode::Left => {
-                    let _ = self.state.update(|s| s.spawn_x = (s.spawn_x - 5.0).max(5.0));
+                    let _ = state.update(|s| s.spawn_x = (s.spawn_x - 5.0).max(5.0));
                     None
                 }
                 KeyCode::Right => {
-                    let _ = self.state.update(|s| s.spawn_x = (s.spawn_x + 5.0).min(95.0));
+                    let _ = state.update(|s| s.spawn_x = (s.spawn_x + 5.0).min(95.0));
                     None
                 }
                 KeyCode::Up => {
-                    let _ = self.state.update(|s| s.spawn_y = (s.spawn_y + 3.0).min(45.0));
+                    let _ = state.update(|s| s.spawn_y = (s.spawn_y + 3.0).min(45.0));
                     None
                 }
                 KeyCode::Down => {
-                    let _ = self.state.update(|s| s.spawn_y = (s.spawn_y - 3.0).max(5.0));
+                    let _ = state.update(|s| s.spawn_y = (s.spawn_y - 3.0).max(5.0));
                     None
                 }
                 _ => None,
             },
             _ => None,
+        }
+        } else {
+            None
         }
     }
 }
