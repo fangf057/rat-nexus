@@ -18,6 +18,7 @@ impl Menu {
                 ("Stopwatch", "Timer with laps & async updates", "timer".to_string()),
                 ("Particles", "Animated particle fountain", "particles".to_string()),
                 ("Flappy Bird", "Classic arcade game clone", "flappy".to_string()),
+                ("Gomoku", "五子棋 Human vs AI", "tictactoe".to_string()),
                 ("Exit", "Quit application", "exit".to_string()),
             ],
             state,

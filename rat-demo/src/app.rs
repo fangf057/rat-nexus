@@ -1,6 +1,6 @@
 use rat_nexus::{Component, Context, EventContext, Event, Action, Route, Entity, AppContext};
 use crate::model::AppState;
-use crate::pages::{Menu, MonitorPage, TimerPage, ParticlesPage, FlappyPage};
+use crate::pages::{Menu, MonitorPage, TimerPage, ParticlesPage, FlappyPage, TicTacToePage};
 
 pub struct Root {
     current: Route,
@@ -10,6 +10,7 @@ pub struct Root {
     timer: TimerPage,
     particles: ParticlesPage,
     flappy: FlappyPage,
+    tictactoe: TicTacToePage,
 }
 
 impl Root {
@@ -22,6 +23,7 @@ impl Root {
             timer: TimerPage::new(cx),
             particles: ParticlesPage::new(cx),
             flappy: FlappyPage::new(cx),
+            tictactoe: TicTacToePage::new(cx),
         }
     }
 
@@ -49,6 +51,7 @@ impl Component for Root {
         self.timer.on_mount(&mut cx.cast());
         self.particles.on_mount(&mut cx.cast());
         self.flappy.on_mount(&mut cx.cast());
+        self.tictactoe.on_mount(&mut cx.cast());
     }
 
     fn on_enter(&mut self, cx: &mut Context<Self>) {
@@ -57,6 +60,7 @@ impl Component for Root {
             "timer" => self.timer.on_enter(&mut cx.cast()),
             "particles" => self.particles.on_enter(&mut cx.cast()),
             "flappy" => self.flappy.on_enter(&mut cx.cast()),
+            "tictactoe" => self.tictactoe.on_enter(&mut cx.cast()),
             _ => self.menu.on_enter(&mut cx.cast()),
         }
     }
@@ -67,6 +71,7 @@ impl Component for Root {
             "timer" => self.timer.render(frame, &mut cx.cast()),
             "particles" => self.particles.render(frame, &mut cx.cast()),
             "flappy" => self.flappy.render(frame, &mut cx.cast()),
+            "tictactoe" => self.tictactoe.render(frame, &mut cx.cast()),
             _ => self.menu.render(frame, &mut cx.cast()),
         }
     }
@@ -78,6 +83,7 @@ impl Component for Root {
             "timer" => self.timer.handle_event(event, &mut cx.cast()),
             "particles" => self.particles.handle_event(event, &mut cx.cast()),
             "flappy" => self.flappy.handle_event(event, &mut cx.cast()),
+            "tictactoe" => self.tictactoe.handle_event(event, &mut cx.cast()),
             _ => self.menu.handle_event(event, &mut cx.cast()),
         };
 
@@ -90,6 +96,7 @@ impl Component for Root {
                         "timer" => self.timer.on_exit(&mut cx.cast()),
                         "particles" => self.particles.on_exit(&mut cx.cast()),
                         "flappy" => self.flappy.on_exit(&mut cx.cast()),
+                        "tictactoe" => self.tictactoe.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     self.navigate(route);
@@ -98,6 +105,7 @@ impl Component for Root {
                         "timer" => self.timer.on_enter(&mut cx.cast()),
                         "particles" => self.particles.on_enter(&mut cx.cast()),
                         "flappy" => self.flappy.on_enter(&mut cx.cast()),
+                        "tictactoe" => self.tictactoe.on_enter(&mut cx.cast()),
                         _ => self.menu.on_enter(&mut cx.cast()),
                     }
                     None
@@ -108,6 +116,7 @@ impl Component for Root {
                         "timer" => self.timer.on_exit(&mut cx.cast()),
                         "particles" => self.particles.on_exit(&mut cx.cast()),
                         "flappy" => self.flappy.on_exit(&mut cx.cast()),
+                        "tictactoe" => self.tictactoe.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     if self.go_back() {
@@ -116,6 +125,7 @@ impl Component for Root {
                             "timer" => self.timer.on_enter(&mut cx.cast()),
                             "particles" => self.particles.on_enter(&mut cx.cast()),
                             "flappy" => self.flappy.on_enter(&mut cx.cast()),
+                            "tictactoe" => self.tictactoe.on_enter(&mut cx.cast()),
                             _ => self.menu.on_enter(&mut cx.cast()),
                         }
                     }
