@@ -1,16 +1,15 @@
 use rat_nexus::{Component, Context, EventContext, Event, Action, Route, Entity, AppContext};
-use crate::model::{AppState, LocalState};
-use crate::pages::{Menu, CounterPage, SnakePage, ShowcasePage, MonitorPage};
+use crate::model::AppState;
+use crate::pages::{Menu, MonitorPage, TimerPage, ParticlesPage, FlappyPage};
 
-// A simple root component that switches between menu and pages
 pub struct Root {
     current: Route,
     history: Vec<Route>,
     menu: Menu,
-    counter: CounterPage,
-    snake: SnakePage,
-    showcase: ShowcasePage,
     monitor: MonitorPage,
+    timer: TimerPage,
+    particles: ParticlesPage,
+    flappy: FlappyPage,
 }
 
 impl Root {
@@ -19,10 +18,10 @@ impl Root {
             current: "menu".to_string(),
             history: Vec::new(),
             menu: Menu::new(shared_state.clone()),
-            counter: CounterPage::new("Counter Demo", shared_state.clone(), cx.new_entity(LocalState::default())),
-            snake: SnakePage::new(cx),
-            showcase: ShowcasePage::new(shared_state.clone(), cx),
             monitor: MonitorPage::new(shared_state, cx),
+            timer: TimerPage::new(cx),
+            particles: ParticlesPage::new(cx),
+            flappy: FlappyPage::new(cx),
         }
     }
 
@@ -45,129 +44,78 @@ impl Root {
 
 impl Component for Root {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
-        // Mount all child components once at startup
-        {
-            let mut cx = cx.cast::<Menu>();
-            self.menu.on_mount(&mut cx);
-        }
-        {
-            let mut cx = cx.cast::<CounterPage>();
-            self.counter.on_mount(&mut cx);
-        }
-        {
-            let mut cx = cx.cast::<SnakePage>();
-            self.snake.on_mount(&mut cx);
-        }
-        {
-            let mut cx = cx.cast::<ShowcasePage>();
-            self.showcase.on_mount(&mut cx);
-        }
-        {
-            let mut cx = cx.cast::<MonitorPage>();
-            self.monitor.on_mount(&mut cx);
-        }
+        self.menu.on_mount(&mut cx.cast());
+        self.monitor.on_mount(&mut cx.cast());
+        self.timer.on_mount(&mut cx.cast());
+        self.particles.on_mount(&mut cx.cast());
+        self.flappy.on_mount(&mut cx.cast());
     }
 
     fn on_enter(&mut self, cx: &mut Context<Self>) {
-        // Enter the current page
         match self.current.as_str() {
-            "counter" => self.counter.on_enter(&mut cx.cast()),
-            "snake" => self.snake.on_enter(&mut cx.cast()),
-            "showcase" => self.showcase.on_enter(&mut cx.cast()),
             "monitor" => self.monitor.on_enter(&mut cx.cast()),
+            "timer" => self.timer.on_enter(&mut cx.cast()),
+            "particles" => self.particles.on_enter(&mut cx.cast()),
+            "flappy" => self.flappy.on_enter(&mut cx.cast()),
             _ => self.menu.on_enter(&mut cx.cast()),
         }
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut Context<Self>) {
-        let current = self.current.clone();
-        match current.as_str() {
-            "counter" => {
-                let mut cx = cx.cast::<CounterPage>();
-                self.counter.render(frame, &mut cx);
-            }
-            "snake" => {
-                let mut cx = cx.cast::<SnakePage>();
-                self.snake.render(frame, &mut cx);
-            }
-            "showcase" => {
-                let mut cx = cx.cast::<ShowcasePage>();
-                self.showcase.render(frame, &mut cx);
-            }
-            "monitor" => {
-                let mut cx = cx.cast::<MonitorPage>();
-                self.monitor.render(frame, &mut cx);
-            }
-            _ => {
-                let mut cx = cx.cast::<Menu>();
-                self.menu.render(frame, &mut cx);
-            }
+        match self.current.as_str() {
+            "monitor" => self.monitor.render(frame, &mut cx.cast()),
+            "timer" => self.timer.render(frame, &mut cx.cast()),
+            "particles" => self.particles.render(frame, &mut cx.cast()),
+            "flappy" => self.flappy.render(frame, &mut cx.cast()),
+            _ => self.menu.render(frame, &mut cx.cast()),
         }
     }
 
     fn handle_event(&mut self, event: Event, cx: &mut EventContext<Self>) -> Option<Action> {
         let current = self.current.clone();
         let action = match current.as_str() {
-            "counter" => {
-                let mut cx = cx.cast::<CounterPage>();
-                self.counter.handle_event(event, &mut cx)
-            }
-            "snake" => {
-                let mut cx = cx.cast::<SnakePage>();
-                self.snake.handle_event(event, &mut cx)
-            }
-            "showcase" => {
-                let mut cx = cx.cast::<ShowcasePage>();
-                self.showcase.handle_event(event, &mut cx)
-            }
-            "monitor" => {
-                let mut cx = cx.cast::<MonitorPage>();
-                self.monitor.handle_event(event, &mut cx)
-            }
-            _ => {
-                let mut cx = cx.cast::<Menu>();
-                self.menu.handle_event(event, &mut cx)
-            }
+            "monitor" => self.monitor.handle_event(event, &mut cx.cast()),
+            "timer" => self.timer.handle_event(event, &mut cx.cast()),
+            "particles" => self.particles.handle_event(event, &mut cx.cast()),
+            "flappy" => self.flappy.handle_event(event, &mut cx.cast()),
+            _ => self.menu.handle_event(event, &mut cx.cast()),
         };
 
         if let Some(action) = action {
             match action {
                 Action::Navigate(route) => {
-                    // Lifecycle: Call on_exit for current page
+                    // Lifecycle: on_exit current → navigate → on_enter new
                     match current.as_str() {
-                        "counter" => self.counter.on_exit(&mut cx.cast()),
-                        "snake" => self.snake.on_exit(&mut cx.cast()),
-                        "showcase" => self.showcase.on_exit(&mut cx.cast()),
                         "monitor" => self.monitor.on_exit(&mut cx.cast()),
+                        "timer" => self.timer.on_exit(&mut cx.cast()),
+                        "particles" => self.particles.on_exit(&mut cx.cast()),
+                        "flappy" => self.flappy.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     self.navigate(route);
-                    // Lifecycle: Call on_enter for new page (not on_mount - already mounted)
                     match self.current.as_str() {
-                        "counter" => self.counter.on_enter(&mut cx.cast()),
-                        "snake" => self.snake.on_enter(&mut cx.cast()),
-                        "showcase" => self.showcase.on_enter(&mut cx.cast()),
                         "monitor" => self.monitor.on_enter(&mut cx.cast()),
+                        "timer" => self.timer.on_enter(&mut cx.cast()),
+                        "particles" => self.particles.on_enter(&mut cx.cast()),
+                        "flappy" => self.flappy.on_enter(&mut cx.cast()),
                         _ => self.menu.on_enter(&mut cx.cast()),
                     }
                     None
                 }
                 Action::Back => {
-                    // Lifecycle: Call on_exit
                     match current.as_str() {
-                        "counter" => self.counter.on_exit(&mut cx.cast()),
-                        "snake" => self.snake.on_exit(&mut cx.cast()),
-                        "showcase" => self.showcase.on_exit(&mut cx.cast()),
                         "monitor" => self.monitor.on_exit(&mut cx.cast()),
+                        "timer" => self.timer.on_exit(&mut cx.cast()),
+                        "particles" => self.particles.on_exit(&mut cx.cast()),
+                        "flappy" => self.flappy.on_exit(&mut cx.cast()),
                         _ => self.menu.on_exit(&mut cx.cast()),
                     }
                     if self.go_back() {
-                        // Lifecycle: Call on_enter (not on_mount)
                         match self.current.as_str() {
-                            "counter" => self.counter.on_enter(&mut cx.cast()),
-                            "snake" => self.snake.on_enter(&mut cx.cast()),
-                            "showcase" => self.showcase.on_enter(&mut cx.cast()),
                             "monitor" => self.monitor.on_enter(&mut cx.cast()),
+                            "timer" => self.timer.on_enter(&mut cx.cast()),
+                            "particles" => self.particles.on_enter(&mut cx.cast()),
+                            "flappy" => self.flappy.on_enter(&mut cx.cast()),
                             _ => self.menu.on_enter(&mut cx.cast()),
                         }
                     }

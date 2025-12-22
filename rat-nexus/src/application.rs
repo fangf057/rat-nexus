@@ -201,6 +201,28 @@ impl<V: ?Sized + Send + Sync> Context<V> {
         crate::task::TaskHandle::new(join_handle.abort_handle())
     }
 
+    /// Spawn an unbound async task (no WeakEntity reference).
+    /// Use this for background tasks that don't need to access the component.
+    /// Delegates to `AppContext::spawn`.
+    pub fn spawn_detached<F, Fut>(&self, f: F)
+    where
+        F: FnOnce(AppContext) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.app.spawn(f)
+    }
+
+    /// Spawn an unbound async task with cancellation handle.
+    /// Use this for background tasks that don't need to access the component.
+    /// Delegates to `AppContext::spawn_task`.
+    pub fn spawn_detached_task<F, Fut>(&self, f: F) -> crate::task::TaskHandle
+    where
+        F: FnOnce(AppContext) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.app.spawn_task(f)
+    }
+
     /// Cast this context to another view type.
     /// Note: The cast context will NOT have a handle. Use `entity.update_with_cx(cx, ...)`
     /// pattern for proper child component lifecycle.

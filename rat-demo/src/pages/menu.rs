@@ -14,10 +14,10 @@ impl Menu {
         Self {
             selected: 0,
             options: vec![
-                ("Counter Demo", "Reactive state, lifecycle & async tasks", "counter".to_string()),
-                ("Widget Showcase", "Tabs, Tables, Charts, Gauges, Lists", "showcase".to_string()),
-                ("System Monitor", "Real-time async data visualization", "monitor".to_string()),
-                ("Snake Game", "Canvas rendering & game loop", "snake".to_string()),
+                ("System Monitor", "Real-time charts, sparklines & metrics", "monitor".to_string()),
+                ("Stopwatch", "Timer with laps & async updates", "timer".to_string()),
+                ("Particles", "Animated particle fountain", "particles".to_string()),
+                ("Flappy Bird", "Classic arcade game clone", "flappy".to_string()),
                 ("Exit", "Quit application", "exit".to_string()),
             ],
             state,

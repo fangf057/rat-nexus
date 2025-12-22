@@ -1,11 +1,11 @@
 pub mod menu;
-pub mod counter;
-pub mod snake;
-pub mod showcase;
 pub mod monitor;
+pub mod timer;
+pub mod particles;
+pub mod flappy;
 
 pub use menu::Menu;
-pub use counter::CounterPage;
-pub use snake::SnakePage;
-pub use showcase::ShowcasePage;
 pub use monitor::MonitorPage;
+pub use timer::TimerPage;
+pub use particles::ParticlesPage;
+pub use flappy::FlappyPage;

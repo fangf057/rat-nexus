@@ -41,9 +41,8 @@ impl Component for MonitorPage {
     fn on_mount(&mut self, cx: &mut Context<Self>) {
         // Spawn data simulation task
         let state = Entity::clone(&self.state);
-        let app = AppContext::clone(&cx.app);
 
-        let handle = cx.spawn_task(move |_| async move {
+        let handle = cx.spawn_detached_task(move |app| async move {
             use rand::Rng;
             use rand::SeedableRng;
             let mut rng = rand::rngs::StdRng::from_entropy();
