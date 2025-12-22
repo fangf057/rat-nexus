@@ -76,11 +76,29 @@ impl AppContext {
     }
 
     /// Set the root component of the application.
-    pub fn set_root(&self, root: Entity<dyn AnyComponent>) -> crate::Result<()> {
+    fn set_root_component(&self, root: Entity<dyn AnyComponent>) -> crate::Result<()> {
         let mut guard = self.root.lock().map_err(|_| crate::Error::LockPoisoned)?;
         *guard = Some(root);
         self.refresh();
         Ok(())
+    }
+
+    /// Set the root component with automatic Arc/RwLock wrapping.
+    /// This is a convenience method that handles the boilerplate of wrapping
+    /// a component in Arc<RwLock<T>> and creating an Entity.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let root = Root::new(cx);
+    /// cx.set_root_component(root)?;  // No ugly Arc/RwLock casting needed!
+    /// ```
+    pub fn set_root<C>(&self, component: C) -> crate::Result<()>
+    where
+        C: AnyComponent + 'static,
+    {
+        let locked = Arc::new(RwLock::new(component));
+        let root = Entity::from_arc(locked as Arc<RwLock<dyn AnyComponent>>);
+        self.set_root_component(root)
     }
 
     /// Trigger a re-render.
@@ -136,6 +154,52 @@ impl AppContext {
             .map(|guard| guard.contains_key(&TypeId::of::<T>()))
             .unwrap_or(false)
     }
+
+    /// Get a value from application state, or return a default if not set.
+    /// This is safer than `get().expect()` - no panic possible.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let shared: Entity<AppState> = cx.get_or_default();
+    /// // If AppState was never set, a default instance is created and stored
+    /// ```
+    pub fn get_or_default<T>(&self) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static + Default,
+    {
+        match self.get::<T>() {
+            Some(value) => Some(value),
+            None => {
+                let default = T::default();
+                self.set(default.clone());
+                Some(default)
+            }
+        }
+    }
+
+    /// Get a value from application state, or create one using a closure if not set.
+    /// More flexible than `get_or_default()` when custom initialization is needed.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let shared: Entity<AppState> = cx.get_or_insert_with(|| {
+    ///     AppState::new_with_config(config)
+    /// });
+    /// ```
+    pub fn get_or_insert_with<T, F>(&self, f: F) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+        F: FnOnce() -> T,
+    {
+        match self.get::<T>() {
+            Some(value) => Some(value),
+            None => {
+                let value = f();
+                self.set(value.clone());
+                Some(value)
+            }
+        }
+    }
 }
 
 /// A specialized context passed to component methods.
@@ -179,7 +243,7 @@ impl<V: ?Sized + Send + Sync> Context<V> {
     where T: Send + Sync + 'static
     {
         let mut rx = entity.subscribe();
-        let tx = mpsc::UnboundedSender::clone(&self.app.re_render_tx);
+        let tx = self.app.re_render_tx.clone();
         tokio::spawn(async move {
             while rx.changed().await.is_ok() {
                 let _ = tx.send(());
@@ -344,7 +408,7 @@ impl Application {
         let actual_root: Entity<dyn AnyComponent> = {
             let guard = root.lock().map_err(|_| anyhow::anyhow!("Root mutex poisoned"))?;
             guard.as_ref().map(Entity::clone).unwrap_or_else(|| {
-                Entity::from_arc(Arc::new(Mutex::new(DummyView)) as Arc<Mutex<dyn AnyComponent>>)
+                Entity::from_arc(Arc::new(RwLock::new(DummyView)) as Arc<RwLock<dyn AnyComponent>>)
             })
         };
 

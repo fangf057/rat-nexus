@@ -176,6 +176,7 @@ macro_rules! define_app {
     // Internal: actual implementation - takes default route and routes
     (@impl ($default_route:ident) $($route:ident => $field:ident : $page:ty),*) => {
         $crate::paste::paste! {
+            use $crate::Component;
             // Generate RootRoute enum
             #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
             pub enum RootRoute {
@@ -193,6 +194,26 @@ macro_rules! define_app {
                     match self {
                         $(Self::$route => write!(f, stringify!($route))),*
                     }
+                }
+            }
+
+            /// Type-safe route parsing from strings.
+            /// Returns error with available routes on mismatch.
+            impl std::str::FromStr for RootRoute {
+                type Err = String;
+
+                fn from_str(s: &str) -> Result<Self, Self::Err> {
+                    let lower = s.to_lowercase();
+                    $(
+                        if lower == stringify!($route).to_lowercase() {
+                            return Ok(RootRoute::$route);
+                        }
+                    )*
+                    Err(format!(
+                        "Unknown route: '{}'. Available routes: {}",
+                        s,
+                        vec![$(stringify!($route)),*].join(", ")
+                    ))
                 }
             }
 
@@ -226,6 +247,20 @@ macro_rules! define_app {
                 pub fn go_back(&mut self) -> bool {
                     self.router.go_back()
                 }
+
+                /// Helper: Call on_enter for the given route
+                fn call_on_enter(&mut self, route: RootRoute, cx: &mut $crate::Context<Self>) {
+                    match route {
+                        $(RootRoute::$route => self.$field.on_enter(&mut cx.cast())),*
+                    }
+                }
+
+                /// Helper: Call on_exit for the given route
+                fn call_on_exit(&mut self, route: RootRoute, cx: &mut $crate::Context<Self>) {
+                    match route {
+                        $(RootRoute::$route => self.$field.on_exit(&mut cx.cast())),*
+                    }
+                }
             }
 
             impl $crate::Component for Root {
@@ -234,15 +269,15 @@ macro_rules! define_app {
                 }
 
                 fn on_enter(&mut self, cx: &mut $crate::Context<Self>) {
-                    match self.router.current() {
-                        $(RootRoute::$route => self.$field.on_enter(&mut cx.cast())),*
-                    }
+                    self.call_on_enter(*self.router.current(), cx);
                 }
 
                 fn on_exit(&mut self, cx: &mut $crate::Context<Self>) {
-                    match self.router.current() {
-                        $(RootRoute::$route => self.$field.on_exit(&mut cx.cast())),*
-                    }
+                    self.call_on_exit(*self.router.current(), cx);
+                }
+
+                fn on_shutdown(&mut self, cx: &mut $crate::Context<Self>) {
+                    $(self.$field.on_shutdown(&mut cx.cast());)*
                 }
 
                 fn render(&mut self, frame: &mut ratatui::Frame, cx: &mut $crate::Context<Self>) {
@@ -257,40 +292,31 @@ macro_rules! define_app {
                         $(RootRoute::$route => self.$field.handle_event(event, &mut cx.cast())),*
                     };
 
-                    // Handle navigation actions
+                    // Handle navigation actions with type-safe routing
                     if let Some(action) = action {
                         match &action {
                             $crate::Action::Navigate(route_str) => {
-                                // Call on_exit for current page
-                                match current {
-                                    $(RootRoute::$route => self.$field.on_exit(&mut cx.cast())),*
-                                }
-
-                                // Parse route string and navigate
-                                let route_lower = route_str.to_lowercase();
-                                $(
-                                    if route_lower == stringify!($route).to_lowercase() {
-                                        self.router.navigate(RootRoute::$route);
+                                // Type-safe route parsing with clear error messages
+                                match route_str.parse::<RootRoute>() {
+                                    Ok(target_route) => {
+                                        // Exit current, enter new
+                                        self.call_on_exit(current, cx);
+                                        self.router.navigate(target_route);
+                                        self.call_on_enter(target_route, cx);
                                     }
-                                )*
-
-                                // Call on_enter for new page
-                                match self.router.current() {
-                                    $(RootRoute::$route => self.$field.on_enter(&mut cx.cast())),*
+                                    Err(e) => {
+                                        eprintln!("Navigation error: {}", e);
+                                    }
                                 }
                                 None
                             }
                             $crate::Action::Back => {
-                                // Call on_exit for current page
-                                match current {
-                                    $(RootRoute::$route => self.$field.on_exit(&mut cx.cast())),*
-                                }
+                                // Exit current
+                                self.call_on_exit(current, cx);
 
                                 if self.router.go_back() {
-                                    // Call on_enter for previous page
-                                    match self.router.current() {
-                                        $(RootRoute::$route => self.$field.on_enter(&mut cx.cast())),*
-                                    }
+                                    // Enter previous
+                                    self.call_on_enter(*self.router.current(), cx);
                                 }
                                 None
                             }

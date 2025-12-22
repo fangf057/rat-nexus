@@ -1,21 +1,28 @@
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, RwLock, Weak};
 use tokio::sync::watch;
 
 /// Global counter for generating unique entity IDs.
 static NEXT_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A unique identifier for an entity across the application.
+/// Guaranteed to be unique across the entire application lifetime.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EntityId(NonZeroU64);
 
 impl EntityId {
     /// Generate a new unique EntityId.
+    ///
+    /// # Panics
+    /// Panics if more than 2^64-1 entities are created (theoretically impossible in practice).
+    /// Consider implementing overflow recovery in production systems handling extreme scale.
     fn next() -> Self {
         let id = NEXT_ENTITY_ID.fetch_add(1, Ordering::Relaxed);
         // SAFETY: We start at 1 and only increment, so it's never zero.
-        Self(NonZeroU64::new(id).expect("EntityId overflow"))
+        Self(NonZeroU64::new(id).unwrap_or_else(|| {
+            panic!("EntityId overflow: created more than 2^64-1 entities")
+        }))
     }
 
     /// Get the raw u64 value.
@@ -36,8 +43,11 @@ impl std::fmt::Display for EntityId {
     }
 }
 
-/// Shared state wrapper.
-pub type SharedState<T> = Arc<Mutex<T>>;
+/// Shared state wrapper with RwLock for efficient concurrent access.
+/// - Use read() for read-heavy workloads (no contention)
+/// - Use write() for mutations (exclusive access)
+/// - Allows multiple concurrent readers or one exclusive writer
+pub type SharedState<T> = Arc<RwLock<T>>;
 
 /// Entity handle, inspired by GPUI.
 /// Each entity has a unique ID and can be subscribed to for change notifications.
@@ -50,7 +60,7 @@ pub struct Entity<T: ?Sized + Send + Sync> {
 /// A weak handle to an entity.
 pub struct WeakEntity<T: ?Sized + Send + Sync> {
     id: EntityId,
-    pub(crate) inner: Weak<Mutex<T>>,
+    pub(crate) inner: Weak<RwLock<T>>,
     tx: watch::Sender<()>,
 }
 
@@ -65,7 +75,7 @@ impl<T: ?Sized + Send + Sync> Entity<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut guard = self.inner.lock().map_err(|_| crate::Error::LockPoisoned)?;
+        let mut guard = self.inner.write().map_err(|_| crate::Error::LockPoisoned)?;
         let res = f(&mut *guard);
         drop(guard);
         let _ = self.tx.send(());
@@ -91,19 +101,19 @@ impl<T: ?Sized + Send + Sync> Entity<T> {
     {
         let weak = self.downgrade();
         let mut cx = crate::Context::new(app.clone(), weak);
-        let mut guard = self.inner.lock().map_err(|_| crate::Error::LockPoisoned)?;
+        let mut guard = self.inner.write().map_err(|_| crate::Error::LockPoisoned)?;
         let res = f(&mut *guard, &mut cx);
         drop(guard);
         let _ = self.tx.send(());
         Ok(res)
     }
 
-    /// Read the inner value using a closure.
+    /// Read the inner value using a closure (non-blocking for concurrent readers).
     pub fn read<F, R>(&self, f: F) -> crate::Result<R>
     where
         F: FnOnce(&T) -> R,
     {
-        let guard = self.inner.lock().map_err(|_| crate::Error::LockPoisoned)?;
+        let guard = self.inner.read().map_err(|_| crate::Error::LockPoisoned)?;
         Ok(f(&*guard))
     }
 
@@ -172,16 +182,16 @@ impl<T: Send + Sync> Entity<T> {
         let (tx, _) = watch::channel(());
         Self {
             id: EntityId::next(),
-            inner: Arc::new(Mutex::new(value)),
+            inner: Arc::new(RwLock::new(value)),
             tx,
         }
     }
 }
 
 impl<T: ?Sized + Send + Sync> Entity<T> {
-    /// Create an entity from an existing Arc<Mutex<T>>.
+    /// Create an entity from an existing Arc<RwLock<T>>.
     /// This is useful for creating Entity<dyn Trait> from coerced Arc types.
-    pub fn from_arc(inner: Arc<Mutex<T>>) -> Self {
+    pub fn from_arc(inner: Arc<RwLock<T>>) -> Self {
         let (tx, _) = watch::channel(());
         Self {
             id: EntityId::next(),

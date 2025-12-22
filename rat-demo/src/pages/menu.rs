@@ -11,8 +11,11 @@ pub struct Menu {
 
 impl Page for Menu {
     fn build(cx: &AppContext) -> Self {
-        // Get shared state from context (set during app initialization)
-        let state = cx.get::<Entity<AppState>>().expect("AppState not set in context");
+        // Get or create shared state with custom initialization
+        let state = cx.get_or_insert_with::<Entity<AppState>, _>(|| {
+            cx.new_entity(AppState::default())
+        }).expect("Failed to initialize AppState");
+
         Self {
             selected: 0,
             options: vec![
